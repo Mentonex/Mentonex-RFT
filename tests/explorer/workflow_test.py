@@ -1,0 +1,99 @@
+# -*- coding: utf-8 -*-
+"""Test for the workflow module"""
+import unittest
+from dataclasses import dataclass
+from unittest.mock import MagicMock, patch
+
+from trinity.common.workflows import MathWorkflow
+
+
+@dataclass
+class MockResponse:
+    response_text: str
+    reward: float = 0.0
+
+
+class WorkflowTest(unittest.TestCase):
+    @patch("ray.get")
+    def test_math_workflow(self, mock_ray_get) -> None:
+        mock_ray_get.return_value = [
+            MockResponse(r"\boxed{2}"),
+            MockResponse(r"\boxted{3}"),
+            MockResponse(r"2"),
+            MockResponse("<think>\nThinking\n</think>\n<answer>\n3\n</answer>"),
+            MockResponse("<think>\nThinking\n</think>\n<answer>\n\\boxed{2}\n</answer>"),
+            MockResponse("<think>Missing closing</think><answer>\\boxed{2}"),
+            MockResponse("<answer>\nOnly answer\n</answer>"),
+            MockResponse("<think>\nOnly thinking\n</think>"),
+            MockResponse("<think>Thinking</think><answer>Answer is not end</answer><answer>1"),
+        ]
+        model = MagicMock()
+        workflow = MathWorkflow(model=model, task_desc="1+1=", truth="2")
+        experiences = workflow.run()
+        self.assertEqual(len(experiences), 9)
+        self.assertEqual(experiences[0].reward, 1.0)
+        self.assertEqual(experiences[1].reward, 0.0)
+        self.assertEqual(experiences[2].reward, 0.0)
+        self.assertEqual(experiences[3].reward, 1.0)
+        self.assertEqual(experiences[4].reward, 2.0)
+        self.assertEqual(experiences[5].reward, 1.0)
+        self.assertEqual(experiences[6].reward, 0.0)
+        self.assertEqual(experiences[7].reward, 0.0)
+        self.assertEqual(experiences[8].reward, 0.0)
+
+    @patch("ray.get")
+    def test_math_fraction_workflow(self, mock_ray_get) -> None:
+        mock_ray_get.return_value = [
+            MockResponse(r"\boxed{\frac{40}{400}}"),
+            MockResponse(r"\boxed{\frac{1}{10}}"),
+            MockResponse(r"\boxed{0.1}"),
+            MockResponse(r"\boxed{0.1000}"),
+            MockResponse(r"\boxed{\frac{1} {10}}"),
+            MockResponse(r"The answer is \boxed{\frac{40}{400}}"),
+        ]
+        model = MagicMock()
+        workflow = MathWorkflow(model=model, task_desc=r"\frac{40}{400}", truth=r"\frac{40}{400}")
+        experiences = workflow.run()
+        self.assertEqual(len(experiences), 6)
+        self.assertEqual(experiences[0].reward, 1.0)
+        self.assertEqual(experiences[1].reward, 1.0)
+        self.assertEqual(experiences[2].reward, 1.0)
+        self.assertEqual(experiences[3].reward, 1.0)
+        self.assertEqual(experiences[4].reward, 1.0)
+        self.assertEqual(experiences[5].reward, 1.0)
+
+    @patch("ray.get")
+    def test_math_complex_workflow(self, mock_ray_get) -> None:
+        mock_ray_get.return_value = [
+            MockResponse(
+                r"$\boxed{\dfrac{108 + 31\sqrt{5}}{216}} \quad \text{and} \quad \boxed{\dfrac{108 - 31\sqrt{5}}{216}}$"
+            ),
+        ]
+        model = MagicMock()
+        workflow = MathWorkflow(
+            model=model,
+            task_desc="",
+            truth=r"$x_{1}=\frac{1}{2}+\frac{31\sqrt{5}}{216},\quadx_{2}=\frac{1}{2}-\frac{31\sqrt{5}}{216}$",
+        )
+        experiences = workflow.run()
+        self.assertEqual(len(experiences), 1)
+        self.assertEqual(experiences[0].reward, 1.0)
+
+    @patch("ray.get")
+    def test_gsm8k_workflow(self, mock_ray_get) -> None:
+        mock_ray_get.return_value = [
+            MockResponse("<think> balabalabala 99 </think>\n<answer> 36 </answer>"),
+            MockResponse("<answer> 36.0 </answer>"),
+            MockResponse("<answer>Kim's total points are 6 + 30 = 36 </answer>"),
+        ]
+        model = MagicMock()
+        workflow = MathWorkflow(
+            model=model,
+            task_desc="",
+            truth=r"36",
+        )
+        experiences = workflow.run()
+        # self.assertEqual(len(experiences), 1)
+        self.assertEqual(experiences[0].reward, 1.1)
+        self.assertEqual(experiences[1].reward, 0.9)
+        self.assertEqual(experiences[2].reward, 0.9)

@@ -1,0 +1,89 @@
+# -*- coding: utf-8 -*-
+"""Custom vLLM Worker."""
+import ray
+import torch
+import torch.distributed
+from vllm.worker.worker import Worker
+
+from trinity.utils.distributed import init_process_group
+from trinity.utils.log import get_logger
+
+logger = get_logger(__name__)
+
+
+def get_physical_gpu_id():
+    device = torch.cuda.current_device()
+    props = torch.cuda.get_device_properties(device)
+    return str(props.uuid)
+
+
+class VLLMWorker(Worker):
+    def init_process_group(
+        self,
+        master_address: str,
+        master_port: int,
+        rank_offset: int,
+        world_size: int,
+        group_name: str,
+        backend: str = "nccl",
+        offline_update: bool = True,
+    ):
+        """Init torch process group for model weights update"""
+        assert torch.distributed.is_initialized(), "default torch process group must be initialized"
+        assert group_name != "", "group name must not be empty"
+        self._offline_update = offline_update
+        if self._offline_update:
+            logger.info(
+                f"init_process_group (offline): address={master_address}:{master_port}, rank={torch.distributed.get_rank()}, rank_offset={rank_offset}, world_size={world_size}"
+            )
+            self._weight_update_rank = torch.distributed.get_rank() + rank_offset
+        else:
+            logger.info(
+                f"init_process_group (online): rank={torch.distributed.get_rank()}, rank_offset={rank_offset}, world_size={world_size}"
+            )
+            self._weight_update_rank = torch.distributed.get_rank() + rank_offset
+
+        self._model_update_group = init_process_group(
+            backend=backend,
+            init_method=f"tcp://{master_address}:{master_port}",
+            world_size=world_size,
+            rank=self._weight_update_rank,
+            group_name=group_name,
+        )
+        logger.info(
+            f"init_process_group: master_address={master_address}, master_port={master_port}, "
+            f"rank={self._weight_update_rank}, world_size={world_size}, group_name={group_name}"
+        )
+        self._explorer_actor = None
+
+    def update_weight(self, name, dtype, shape, empty_cache=False):
+        """Broadcast weight to all vllm workers from source rank 0 (actor model)"""
+        if self._weight_update_rank == 0:
+            if self._explorer_actor is None:
+                self._explorer_actor = ray.get_actor(name="explorer")
+            weight = ray.get(self._explorer_actor.get_weight.remote(name))
+            weight = weight.to(self.device)
+        else:
+            weight = torch.empty(shape, dtype=dtype, device="cuda")
+
+        torch.distributed.broadcast(weight, 0, group=self._model_update_group)
+        weight = weight.type(self.model_config.dtype)
+
+        self.model_runner.model.load_weights(weights=[(name, weight)])
+        del weight
+
+    def update_weight_cuda_ipc(self, name, dtype, shape, ipc_handles=None, empty_cache=False):
+        assert (
+            dtype == self.model_config.dtype
+        ), f"mismatch dtype: src {dtype}, dst {self.model_config.dtype}"
+
+        handle = ipc_handles[get_physical_gpu_id()]
+        device_id = self.device.index
+        func, args = handle
+        list_args = list(args)
+        # the key is to change device id to the current device id
+        # in case two processes have different CUDA_VISIBLE_DEVICES
+        list_args[6] = device_id
+        weight = func(*list_args)
+        self.model_runner.model.load_weights(weights=[(name, weight)])
+        torch.cuda.synchronize()

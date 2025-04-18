@@ -1,0 +1,30 @@
+data:
+  dataset_path: ''
+model:
+  model_path: '/nas/checkpoints/Qwen25-7B-Instruct'
+  max_prompt_tokens: 2048
+  max_response_tokens: 2048
+  checkpoint_path: ''
+  load_checkpoint: true
+cluster:
+  node_num: 1
+  gpu_per_node: 8
+buffer:
+  storage_type: dict
+  db_url: ''
+  read_batch_size: 32
+  max_retry_times: 3
+  max_retry_interval: 1
+explorer:
+  engine_type: vllm
+  engine_num: 2
+  runner_num: 8
+  tensor_parallel_size: 2
+  enable_prefix_caching: false
+  enforce_eager: true
+  dtype: bfloat16
+  temperature: 1.0
+  top_p: 1.0
+  top_k: -1
+  seed: 42
+  logprobs: 0

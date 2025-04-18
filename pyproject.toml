@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name =  "trinity-rft"
+version = "0.1.0"
+authors = []
+description = "Trinity-RFT: A Framework for Training Large Language Models with Reinforcement Fine-Tuning"
+readme = "README.md"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+requires-python = ">=3.10"
+dependencies = [
+    "verl==0.3.0.post1",
+    "ray==2.43.0",
+    "vllm==0.8.3",
+    "tensordict==0.6.2",
+    "redis",
+    "wandb",
+    "omegaconf",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "networkx",
+    "latex2sympy2_extended",
+    "math_verify",
+    "ninja",
+    "fire",
+]
+
+[project.scripts]
+trinity = "trinity.cli.launcher:main"
+
+[project.optional-dependencies]
+data = [
+    "py-data-juicer"
+]
+agent = [
+    "agentscope"
+]
+dev = [
+    "pre-commit>=2.17.0",
+    "black>=23.7.0",
+    "flake8>=6.1.0",
+    "flake8-docstrings>=1.6.0",
+    "isort>=5.12.0",
+    "mypy>=1.7.0",
+    "pytest>=8.0.0",
+]
+
+doc = [
+    "sphinx",
+    "sphinx-autobuild",
+    "sphinx_rtd_theme",
+    "myst-parser",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["trinity*"]
+exclude = ["tests*", "docs*", "scripts*"]
+
+[tool.setuptools.package-data]
+my_package = ["*.md", "*.rst"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.eggs
+    | \.git
+    | \.github
+    | \.vscode
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | build
+    | dist
+)/
+'''

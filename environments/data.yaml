@@ -1,0 +1,13 @@
+name: trinity_data
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip:
+    - py-data-juicer
+    - flask
+    - omegaconf
+    - sqlalchemy
+    - psycopg2
+    - networkx
+    - transformers

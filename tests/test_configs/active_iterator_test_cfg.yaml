@@ -1,0 +1,13 @@
+data:
+  # basic info
+  dataset_path: '/Users/lielin/Projects/research/large_models/Trinity-RFT/tests/test_data/test_10/'
+  dataset_config:
+    split: 'train'
+  format_config:
+    prompt_key: 'problem'
+    response_key: 'solution'
+  # cleaner related
+  dj_config_path: '/Users/lielin/Projects/research/large_models/Trinity-RFT/tests/test_configs/active_iterator_test_dj_cfg.yaml'
+  clean_strategy: 'iterative'
+  # db related
+  db_url: 'postgresql://{username}@localhost:5432/{db_name}'

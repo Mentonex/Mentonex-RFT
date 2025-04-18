@@ -1,0 +1,46 @@
+"""A queue implemented by Ray Actor."""
+import asyncio
+from copy import deepcopy
+from typing import List
+
+import ray
+
+from trinity.buffer.writer.sql_writer import SQLWriter
+from trinity.common.config import BufferConfig, DatasetConfig
+from trinity.common.constants import StorageType
+
+
+@ray.remote
+class QueueActor:
+    """An asyncio.Queue based queue actor."""
+
+    def __init__(self, dataset_config: DatasetConfig, config: BufferConfig) -> None:
+        self.config = config
+        self.capacity = getattr(config, "capacity", 10000)
+        self.queue = asyncio.Queue(self.capacity)
+        if dataset_config.path is not None and len(dataset_config.path) > 0:
+            sql_config = deepcopy(dataset_config)
+            sql_config.storage_type = StorageType.SQL
+            self.sql_writer = SQLWriter(sql_config, self.config)
+        else:
+            self.sql_writer = None
+
+    def length(self) -> int:
+        """The length of the queue."""
+        return self.queue.qsize()
+
+    async def put_batch(self, exp_list: List) -> None:
+        """Put batch of experience."""
+        await self.queue.put(exp_list)
+        if self.sql_writer is not None:
+            self.sql_writer.write(exp_list)
+
+    async def get_batch(self, batch_size: int) -> List:
+        """Get batch of experience."""
+        batch = []
+        while True:
+            exp_list = await self.queue.get()
+            batch.extend(exp_list)
+            if len(batch) >= batch_size:
+                break
+        return batch

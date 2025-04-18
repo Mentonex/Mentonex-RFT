@@ -1,0 +1,217 @@
+# -*- coding: utf-8 -*-
+import uuid
+from typing import List
+
+import torch
+
+from trinity.common.experience import Experience
+from trinity.common.models.model import ModelWrapper
+from trinity.common.workflows.workflow import WORKFLOWS, Workflow
+
+EXAMPLE_PROMPT = """
+Observation：
+-= Welcome to TextWorld, ALFRED! =-
+
+You are in the middle of a room. Looking quickly around you, you see a cabinet 4, a cabinet 3, a cabinet 2, a cabinet 1, a countertop 1, a garbagecan 1, a handtowelholder 2, a handtowelholder 1, a sinkbasin 2, a sinkbasin 1, a toilet 1, a toiletpaperhanger 1, and a towelholder 1.
+
+Your task is to: put some spraybottle on toilet.
+
+Response:
+<think>To solve the task, I need to find and take a sparybottle, then put it on toilet. First I need to find a spraybottle. A spraybottle is more likely to appear in cabinet (1-4), countertop (1), toilet (1), sinkbasin (1-2), garbagecan (1). I can check one by one, starting with cabinet 1.</think><action>go to cabinet 1</action>
+
+Observation:
+On the cabinet 1, you see a cloth 1, a soapbar 1, a soapbottle 1.
+
+Response:
+<think>The sparybottle is not here, I should go to cabinet2 to check one by one</think><action>go to cabinet 2</action>
+
+Observation:
+The cabinet 2 is closed.
+
+Response:
+<think>I should open the cabinet 2 to see what's in it</think><action>open cabinet 2</action>
+
+Observation:
+You open the cabinet 2. The cabinet 2 is open. In it, you see a candle 1, and a spraybottle 2.
+
+Response:
+<think>Now I find a spraybottle (2). Next, I need to take it.</think><action>take spraybottle 2 from cabinet 2</action>
+
+Observation:
+You pick up the spraybottle 2 from the cabinet 2.
+
+Response:
+<think>Now I take a spraybottle (2). Next, I need to put it in/on toilet 1.</think><action>go to toilet 1</action>
+
+Observation:
+On the toilet 1, you see a soapbottle 2.
+
+Response:
+<think> Now I should put the taken spraybottle2 on toilet 1 to finish my task. </think><action>move spraybottle 2 to toilet 1</action>
+"""
+
+AlfWORLD_SYSTEM_PROMPT = """
+You are an agent interacting with a virtual test-based environments.
+
+## Notes:
+At each step, you should first think then perform action to fulfill the instruction. You should ALWAYS wrap your thinking with the <think> </think> tag and wrap your action with the <action> </action> tag.
+You should ALWAYS take one action each step.
+DONOT try to interact with the user at anytime. Finish the task and buy the item by yourself.
+
+## Action Format:
+Below are the available commands you can use:
+  look:                             look around your current location
+  inventory:                        check your current inventory(you can only have 1 item in your inventory)
+  go to (receptacle):               move to a receptacle
+  open (receptacle):                open a receptacle
+  close (receptacle):               close a receptacle
+  take (object) from (receptacle):  take an object from a receptacle
+  move (object) to (receptacle):  place an object in or on a receptacle
+  examine (something):              examine a receptacle or an object
+  use (object):                     use an object
+  heat (object) with (receptacle):  heat an object using a receptacle
+  clean (object) with (receptacle): clean an object using a receptacle
+  cool (object) with (receptacle):  cool an object using a receptacle
+  slice (object) with (object):     slice an object using a sharp object
+
+For example your output should be like this:
+<think> To solve the task, I need first to ... </think><action>go to cabinet 1</action>
+"""
+
+
+def format_observation(observation: str):
+    if "Nothing happens." in observation:
+        observation += "Please check if the action you take is valid or you have carefully followed the action format."
+    return "Observation: " + observation
+
+
+def parse_action(response):
+    try:
+        # parse the action within the <action> </action> tag
+        action = response.split("<action>")[1].split("</action>")[0].strip()
+        return action
+    except Exception as e:
+        print("Error parsing action:", e)
+        return ""
+
+
+@WORKFLOWS.register_module("alfworld_workflow")
+class AlfworldWorkflow(Workflow):
+    """A workflow for alfworld task."""
+
+    def __init__(self, model: ModelWrapper, **kwargs):
+        super().__init__(model)
+        self.system_prompt = kwargs.get("system_prompt", None)  # Unuse here
+        self.task_desc: str = kwargs.get("task_desc", "0")
+        self.truth = kwargs.get("truth")  # Unuse here
+        self.reward_fn = kwargs.get("reward_fn")  # Unuse here
+        self.repeat_times = kwargs.get("repeat_times", 1)
+        self.max_env_steps = 30
+
+    def get_model_response(self, messages):
+        responses = self.model.chat(messages, repeat_times=1)
+        return responses
+
+    def get_model_response_text(self, messages):
+        return self.get_model_response(messages)[0].response_text
+
+    def generate_env_inference_samples(self, env, rollout_num) -> List[Experience]:
+        # TODO: Make this parallel
+        print("Generating env inference samples...")
+        all_messages = []
+        all_rewards = []
+        all_infos = []
+        for i in range(rollout_num):
+            observation, info = env.reset()
+            final_reward = -0.1
+            memory = []
+            memory.append({"role": "system", "content": AlfWORLD_SYSTEM_PROMPT})
+            for r in range(self.max_env_steps):
+                format_obs = format_observation(observation)
+                memory = memory + [{"role": "user", "content": format_obs}]
+                response_text = self.get_model_response_text(memory)
+                memory.append({"role": "assistant", "content": response_text})
+                action = parse_action(response_text)
+                observation, reward, done, info = env.step(action)
+                if done:
+                    final_reward = reward
+                    break
+            all_infos.append({"env_rounds": r, "env_done": 1 if done else 0})
+            all_messages.append(memory)
+            all_rewards.append(final_reward)
+        # Close the env to save cpu memory
+        env.close()
+        return self.process_batch_messages(all_messages, all_rewards, all_infos=all_infos)
+
+    def process_batch_messages(self, all_messages, all_rewards, all_infos) -> List[Experience]:
+        # TODO: What about the max_length for training here? Should we process here?
+        new_uid = str(
+            uuid.uuid4()
+        )  # the new_uid might be redundant here, as we have set the run_id in workflow_runner.run_task()
+        batch_tokens = []
+        batch_generation_masks = []
+        batch_log_probs_tensor = []
+        for i, messages in enumerate(all_messages):
+            converted_experience = self.model.convert_messages_to_experience(messages)
+            tokens = converted_experience.tokens
+            log_probs = converted_experience.logprobs
+            generation_mask = converted_experience.action_mask
+            assert log_probs.shape == generation_mask.shape
+            log_probs = log_probs * generation_mask  # type: ignore
+
+            batch_tokens.append(tokens)
+            batch_generation_masks.append(generation_mask)
+            batch_log_probs_tensor.append(log_probs)
+        # actually, we donot need to perform any padding here
+        experience_list = []
+        for i, (tokens, gen_mask, log_probs) in enumerate(
+            zip(batch_tokens, batch_generation_masks, batch_log_probs_tensor)
+        ):
+            assert tokens.shape == log_probs.shape
+            # set prompt length to the first 1 in the gen_mask
+            prompt_length = torch.where(gen_mask == 1)[0][0].item()
+            experience = Experience(
+                run_id=new_uid,
+                tokens=tokens,
+                prompt_length=prompt_length,
+                action_mask=gen_mask,
+                reward=all_rewards[i],
+                logprobs=log_probs,
+                info=all_infos[i],
+            )
+            experience_list.append(experience)
+        return experience_list
+
+    def run(self) -> List[Experience]:
+        # assume the task_description is the game_file_path generated.
+        # see Trinity-RFT/script/data_prepare/get_alfworld_data.py
+        game_file_path = self.task_desc
+        rollout_n = self.repeat_times
+        # TODO: Make parallel envs
+        try:
+            import textworld
+            import textworld.gym
+            from alfworld.agents.environment.alfred_tw_env import (
+                AlfredDemangler,
+                AlfredExpert,
+                AlfredExpertType,
+            )
+
+            def create_environment(game_file):
+                expert = AlfredExpert(expert_type=AlfredExpertType.HANDCODED)
+                request_infos = textworld.EnvInfos(
+                    description=True, inventory=True, admissible_commands=True
+                )
+
+                env_id = textworld.gym.register_game(
+                    game_file, request_infos, wrappers=[AlfredDemangler(), expert]
+                )
+                env = textworld.gym.make(env_id)
+                return env
+
+        except Exception as e:
+            print("Please make sure you have installed the alfworld package.")
+            error_message = f"Error importing AlfworldTWEnv {str(e)}. Please make sure you have installed the alfworld package successfully, following the instructions in https://github.com/alfworld/alfworld"
+            raise ImportError(error_message)
+        env = create_environment(game_file_path)
+        return self.generate_env_inference_samples(env, rollout_n)

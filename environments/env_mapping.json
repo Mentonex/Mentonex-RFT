@@ -1,0 +1,7 @@
+{
+  "trinity.data": {
+    "env_name": "trinity_data",
+    "env_yaml": "environments/data.yaml",
+    "env_entry": "trinity/data/server.py"
+  }
+}
