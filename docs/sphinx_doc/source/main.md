@@ -1,11 +1,8 @@
+# Trinity-RFT
+
+![trinity-rft](../assets/trinity-title.png)
 
 
-
-<!-- ![trinity-rft](../../assets/trinity-title.png) -->
-
-<div align="center">
-  <img src="../../assets/trinity-title.png" alt="Trinity-RFT">
-</div>
 
 
 Trinity-RFT is a general-purpose, flexible and scalable framework designed for reinforcement fine-tuning (RFT) of large language models (LLM).
@@ -46,12 +43,7 @@ These include converting raw datasets to prompt/task sets for RL, cleaning/filte
 ## The design of Trinity-RFT
 
 
-<!-- ![design](../../assets/trinity-design.png) -->
-
-<div align="center">
-  <img src="../../assets/trinity-design.png" alt="Trinity-RFT">
-</div>
-
+![design](../assets/trinity-design.png)
 
 
 
@@ -140,7 +132,7 @@ Trinity-RFT supports most datasets and models from Huggingface and ModelScope.
 
 **Prepare the model** in the local directory `$MODEL_PATH/{model_name}`:
 
-```plain
+```shell
 # Using Huggingface
 huggingface-cli download {model_name} --local-dir $MODEL_PATH/{model_name}
 
@@ -154,7 +146,7 @@ For more details about model downloading, please refer to [Huggingface](https://
 
 **Prepare the dataset** in the local directory `$DATASET_PATH/{dataset_name}`:
 
-```plain
+```shell
 # Using Huggingface
 huggingface-cli download {dataset_name} --repo-type dataset --local-dir $DATASET_PATH/{dataset_name}
 
@@ -171,7 +163,7 @@ For more details about dataset downloading, please refer to [Huggingface](https:
 
 You may customize the configurations in `scripts/config/{config_name}.yaml`and `scripts/config/{train_config_name}.yaml`. For example, the model and dataset are specified as:
 
-```plain
+```yaml
 model:
   model_path: $MODEL_PATH/{model_name}
 
@@ -231,11 +223,11 @@ More example config files can be found in `scripts/config`.
 
 
 For more detailed examples about how to use Trinity-RFT, please refer to the following documents:
-+ [A quick example with GSM8k](./example_reasoning_basic.md);
-+ [Off-policy / asynchronous modes of RFT](./example_reasoning_advanced.md);
-+ [Multi-turn tasks](./example_multi_turn.md);
-+ [Data processing pipelines](./example_data_functionalities.md);
-+ [Offline learning by DPO](./example_dpo.md).
++ [A quick example with GSM8k](tutorial/example_reasoning_basic.md);
++ [Off-policy / asynchronous modes of RFT](tutorial/example_reasoning_advanced.md);
++ [Multi-turn tasks](tutorial/example_multi_turn.md);
++ [Data processing pipelines](tutorial/example_data_functionalities.md);
++ [Offline learning by DPO](tutorial/example_dpo.md).
 
 
 
@@ -244,7 +236,7 @@ For more detailed examples about how to use Trinity-RFT, please refer to the fol
 ## Advanced usage and full configurations
 
 
-Please refer to [this document](./trinity_configs.md).
+Please refer to [this document](tutorial/trinity_configs.md).
 
 
 
@@ -253,7 +245,7 @@ Please refer to [this document](./trinity_configs.md).
 ## Programming guide for developers
 
 
-Please refer to [this document](./trinity_programming_guide.md).
+Please refer to [this document](tutorial/trinity_programming_guide.md).
 
 
 
@@ -277,7 +269,7 @@ pip install -e .\[dev\]
 
 Code style check:
 
-```markdown
+```shell
 pre-commit run --all-files
 ```
 
@@ -285,7 +277,7 @@ pre-commit run --all-files
 
 Unit tests:
 
-```markdown
+```shell
 python -m pytest tests
 ```
 
@@ -309,7 +301,7 @@ This project is built upon many excellent open-source projects, including:
 
 
 ## Citation
-```plain
+```
 @misc{Trinity-RFT,
   title={Trinity-RFT},
   author={{Trinity-RFT Team}},

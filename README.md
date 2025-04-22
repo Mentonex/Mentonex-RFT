@@ -277,7 +277,7 @@ pip install -e .\[dev\]
 
 Code style check:
 
-```markdown
+```shell
 pre-commit run --all-files
 ```
 
@@ -285,7 +285,7 @@ pre-commit run --all-files
 
 Unit tests:
 
-```markdown
+```shell
 python -m pytest tests
 ```
 
