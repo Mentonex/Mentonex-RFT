@@ -1,0 +1,44 @@
+name: unittest
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  unittest:
+    # only run on pull request
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/run-unittest') && github.event.comment.author_association == 'COLLABORATOR' }}
+    runs-on: self-hosted
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        path: trinity-${{ github.run_id }}
+        fetch-depth: 0
+
+    - name: Setup docker compose
+      working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
+      run: |
+        docker compose up -d
+
+    - name: Run unittest
+      working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
+      run: |
+        docker compose exec trinity-node-1 pytest tests --ignore=tests/data --junitxml=pytest.xml
+      continue-on-error: true
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v2
+      with:
+        name: pytest-results
+        path: trinity-${{ github.run_id }}/pytest.xml
+
+    - name: Pytest coverage comment
+      uses: MishaKav/pytest-coverage-comment@main
+      with:
+        junitxml-title: Unittest Result Summary
+        junitxml-path: trinity-${{ github.run_id }}/pytest.xml
+# TODO: run data tests after the dependency conflict is resolved
