@@ -23,23 +23,35 @@ jobs:
     - name: Setup docker compose
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
       run: |
+        export UID=$(id -u)
+        export GID=$(id -g)
         docker compose up -d
+        sleep 5s
+
+    - name: Check ray status
+      working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
+      run: |
+        docker compose exec trinity-node-1 ray status
+        docker compose exec trinity-node-2 ray status
 
     - name: Run unittest
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
       run: |
-        docker compose exec trinity-node-1 pytest tests --ignore=tests/data --junitxml=pytest.xml
+        docker compose exec trinity-node-1 pytest tests --ignore=tests/data --ctrf report.json
       continue-on-error: true
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
       with:
         name: pytest-results
-        path: trinity-${{ github.run_id }}/pytest.xml
+        path: trinity-${{ github.run_id }}/report.json
 
-    - name: Pytest coverage comment
-      uses: MishaKav/pytest-coverage-comment@main
+    - name: Publish Test Report
+      uses: ctrf-io/github-test-reporter@v1
       with:
-        junitxml-title: Unittest Result Summary
-        junitxml-path: trinity-${{ github.run_id }}/pytest.xml
+        report-path: trinity-${{ github.run_id }}/report.json
+        pull-request-report: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      if: always()
 # TODO: run data tests after the dependency conflict is resolved
