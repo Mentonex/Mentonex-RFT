@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
 
-from trinity.common.config import TrainerConfig
+from trinity.common.config import Config
 from trinity.common.constants import AlgorithmType
 from trinity.common.experience import Experiences
 from trinity.trainer.trainer import TrainEngineWrapper
@@ -71,8 +71,9 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
 
     def __init__(
         self,
-        train_config: TrainerConfig,
+        global_config: Config,
     ):
+        train_config = global_config.trainer
         pprint(train_config.trainer_config)
         config = OmegaConf.structured(train_config.trainer_config)
         # download the checkpoint from hdfs
@@ -134,7 +135,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             project=config.trainer.project_name,
             name=config.trainer.experiment_name,
             role="trainer",
-            config=train_config,
+            config=global_config,
         )
         self.reset_experiences_example_table()
 

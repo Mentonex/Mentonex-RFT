@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from omegaconf import OmegaConf
 
-from trinity.common.constants import AlgorithmType, PromptType, StorageType
+from trinity.common.constants import AlgorithmType, MonitorType, PromptType, StorageType
 from trinity.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -201,6 +201,7 @@ class MonitorConfig:
     # TODO: add more
     project: str = "trinity"
     name: str = "rft"
+    monitor_type: MonitorType = MonitorType.WANDB
 
     # ! DO NOT SET
     # the root directory for cache and meta files, automatically generated

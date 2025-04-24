@@ -87,3 +87,10 @@ class AlgorithmType(CaseInsensitiveEnum):
     def is_dpo(self) -> bool:
         """Check if the algorithm is DPO."""
         return self == AlgorithmType.DPO
+
+
+class MonitorType(CaseInsensitiveEnum):
+    """Monitor Type."""
+
+    WANDB = "wandb"
+    TENSORBOARD = "tensorboard"

@@ -12,7 +12,7 @@ from typing import Tuple
 import ray
 
 from trinity.buffer import get_buffer_reader
-from trinity.common.config import Config, TrainerConfig
+from trinity.common.config import Config
 from trinity.common.constants import AlgorithmType
 from trinity.common.experience import Experiences
 from trinity.utils.log import get_logger
@@ -37,7 +37,7 @@ class Trainer:
             if self.config.trainer.sft_warmup_iteration > 0
             else None
         )
-        self.engine = get_trainer_wrapper(config.trainer)
+        self.engine = get_trainer_wrapper(config)
 
     def prepare(self) -> None:
         """Prepare the trainer."""
@@ -146,9 +146,9 @@ class TrainEngineWrapper(ABC):
         """Shutdown the engine."""
 
 
-def get_trainer_wrapper(config: TrainerConfig) -> TrainEngineWrapper:
+def get_trainer_wrapper(config: Config) -> TrainEngineWrapper:
     """Get a trainer wrapper."""
-    if config.trainer_type == "verl":
+    if config.trainer.trainer_type == "verl":
         from trinity.trainer.verl_trainer import VerlPPOTrainerWrapper
 
         return VerlPPOTrainerWrapper(config)
