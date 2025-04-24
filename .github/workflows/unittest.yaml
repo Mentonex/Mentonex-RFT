@@ -19,6 +19,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         path: trinity-${{ github.run_id }}
+        fetch-depth: 0
 
     - name: Setup docker compose
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
@@ -58,4 +59,18 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       if: always()
+
+    - name: Remove docker compose
+      working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
+      if: always()
+      run: |
+        export UID
+        export GID=$(id -g)
+        docker compose down --remove-orphans
+
+    - name: Cleanup workspace
+      if: always()
+      run: |
+        rm -rf trinity-${{ github.run_id }}
+
 # TODO: run data tests after the dependency conflict is resolved
