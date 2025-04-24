@@ -24,7 +24,7 @@ jobs:
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
       run: |
         docker compose up -d
-        sleep 5s
+        sleep 15s
 
     - name: Check ray status
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
