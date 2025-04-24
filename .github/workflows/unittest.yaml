@@ -24,24 +24,18 @@ jobs:
     - name: Setup docker compose
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
       run: |
-        export UID
-        export GID=$(id -g)
         docker compose up -d
         sleep 15s
 
     - name: Check ray status
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
       run: |
-        export UID
-        export GID=$(id -g)
         docker compose exec trinity-node-1 ray status
         docker compose exec trinity-node-2 ray status
 
     - name: Run unittest
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
       run: |
-        export UID
-        export GID=$(id -g)
         docker compose exec trinity-node-1 pytest tests --ignore=tests/data --ctrf report.json
       continue-on-error: true
 
@@ -64,8 +58,6 @@ jobs:
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
       if: always()
       run: |
-        export UID
-        export GID=$(id -g)
         docker compose down --remove-orphans
 
     - name: Cleanup workspace
