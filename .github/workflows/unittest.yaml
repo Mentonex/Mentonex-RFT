@@ -37,7 +37,6 @@ jobs:
       working-directory: trinity-${{ github.run_id }}/.github/workflows/docker
       run: |
         docker compose exec trinity-node-1 pytest tests --ignore=tests/data --ctrf report.json
-      continue-on-error: true
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -49,7 +48,9 @@ jobs:
       uses: ctrf-io/github-test-reporter@v1
       with:
         report-path: trinity-${{ github.run_id }}/report.json
-        pull-request-report: true
+        summary: true
+        pull-request: false
+        issue: ${{ github.event.issue.number }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       if: always()
@@ -63,6 +64,7 @@ jobs:
     - name: Cleanup workspace
       if: always()
       run: |
-        rm -rf trinity-${{ github.run_id }}
+        rm -rf trinity-${{ github.run_id }} 2>/dev/null
+      continue-on-error: true
 
 # TODO: run data tests after the dependency conflict is resolved
