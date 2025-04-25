@@ -173,8 +173,7 @@ class ExplorerConfig:
 @dataclass
 class TrainerConfig:
     trainer_type: str = "verl"
-    trainer_data_type: str = "RFT"
-    trainer_config_path: str = "examples/ppo_countdown/train_countdown.yaml"
+    trainer_config_path: str = ""
     eval_interval: int = 100
     enable_preview: bool = True  # enable rollout preview in wandb
     trainer_config: Any = None
@@ -184,16 +183,6 @@ class TrainerConfig:
 
     # warmup config
     sft_warmup_iteration: int = 0
-
-    def __post_init__(self):
-        if self.trainer_type == "verl":
-            from trinity.common.verl_config import load_config
-
-            if not os.path.isfile(self.trainer_config_path):
-                raise ValueError(f"Invalid trainer config path: {self.trainer_config_path}")
-            self.trainer_config = load_config(self.trainer_config_path)
-        else:
-            raise ValueError(f"Invalid trainer type: {self.trainer_type}")
 
 
 @dataclass
@@ -285,6 +274,15 @@ class Config:
 
     def check_and_update(self) -> None:
         """Check and update the config."""
+        if self.trainer.trainer_type == "verl":
+            from trinity.common.verl_config import load_config
+
+            if not os.path.isfile(self.trainer.trainer_config_path):
+                raise ValueError(f"Invalid trainer config path: {self.trainer.trainer_config_path}")
+            self.trainer.trainer_config = load_config(self.trainer.trainer_config_path)
+        else:
+            raise ValueError(f"Invalid trainer type: {self.trainer_type}")
+
         # check mode
         if self.mode not in ["explore", "train", "both"]:
             raise ValueError(f"Invalid mode: {self.mode}")

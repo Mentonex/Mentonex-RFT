@@ -17,7 +17,7 @@ from trinity.common.experience import Experience
 
 
 class FileReader(BufferReader):
-    """Reader of the Queue buffer."""
+    """Reader of the File buffer."""
 
     def __init__(self, meta: DatasetConfig, config: BufferConfig) -> None:
         assert meta.storage_type == StorageType.FILE

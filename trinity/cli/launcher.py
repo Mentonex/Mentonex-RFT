@@ -102,9 +102,8 @@ def both(config: Config) -> None:
                 logger.error(e)
                 logger.error("Evaluation failed.")
                 raise e
-
-        ray.get(explorer.log_finalize.remote(step=explore_iter_num))
-        ray.get(trainer.log_finalize.remote(step=train_iter_num))
+        ray.get(explorer.flush_log.remote(step=explore_iter_num))
+        ray.get(trainer.flush_log.remote(step=train_iter_num))
 
 
 def activate_data_module(data_workflow_url: str, config_path: str):

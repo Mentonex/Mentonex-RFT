@@ -216,6 +216,9 @@ class Explorer:
 
     def eval(self) -> bool:
         """Evaluation on all evaluation data samples."""
+        if self.eval_taskset is None:
+            self.logger.warning("No evaluation data samples. Skip evaluation.")
+            return True
         self.logger.info("Evaluation started.")
         st = time.time()
         all_metrics = defaultdict(list)
@@ -248,6 +251,6 @@ class Explorer:
         else:  # online weights update
             self._online_weights_update()
 
-    def log_finalize(self, step: int) -> None:
-        """Commit the logging results to wandb"""
-        self.monitor.log({"dummy_log_explorer": step}, step=step, commit=True)
+    def flush_log(self, step: int) -> None:
+        """Flush the log of the current step."""
+        self.monitor.log({}, step=step, commit=True)
