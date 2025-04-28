@@ -1,6 +1,6 @@
 mode: train
 data:
-  total_epoch: 20
+  total_epochs: 20
   batch_size: 32 # NOTE
   train_split: "train"
   dataset_path: ''
@@ -22,7 +22,6 @@ buffer:
   train_dataset:
     name: dpo_buffer
     storage_type: file
-    algorithm_type: dpo
     path: '/PATH/TO/DATASET/'
     kwargs:
       prompt_type: plaintext # plaintext/messages

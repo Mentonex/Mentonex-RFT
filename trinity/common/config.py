@@ -69,7 +69,7 @@ class DataConfig:
     max_retry_interval: int = 1
 
     # downstream loading related
-    total_epoch: int = 1
+    total_epochs: int = 1
     batch_size: int = 1
     default_workflow_type: str = ""
     default_reward_fn_type: str = ""
@@ -101,7 +101,7 @@ class DatasetConfig:
 
     name: str
     storage_type: StorageType
-    algorithm_type: AlgorithmType
+    algorithm_type: AlgorithmType = AlgorithmType.PPO
     path: Optional[str] = None
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
@@ -143,7 +143,7 @@ class ExplorerConfig:
     # For async engine (vllm_async), it can be larger than `engine_num`, e.g. 16 * `engine_num`
     runner_num: int = 1
 
-    # repeat each task for `repeat_times` times (for GPRO-like algrorithms)
+    # repeat each task for `repeat_times` times (for GPRO-like algorithms)
     repeat_times: int = 1
 
     # for rollout tokneize
@@ -177,7 +177,7 @@ class TrainerConfig:
     trainer_config_path: str = ""
     eval_interval: int = 100
     enable_preview: bool = True  # enable rollout preview in wandb
-    trainer_config: Any = None
+    trainer_config: Any = field(default_factory=dict)
 
     # train algorithm
     algorithm_type: AlgorithmType = AlgorithmType.PPO
@@ -266,21 +266,29 @@ class Config:
         else:
             if self.buffer.train_dataset is None:
                 raise ValueError("buffer.train_dataset is required when mode is not 'both'")
-            if self.buffer.train_dataset.algorithm_type != self.trainer.algorithm_type:
-                raise ValueError(
-                    f"buffer.train_dataset.algorithm_type ({self.buffer.train_dataset.algorithm_type}) "
-                    f"is not consistent with trainer.algorithm_type ({self.trainer.algorithm_type})"
-                )
+            self.buffer.train_dataset.algorithm_type = self.trainer.algorithm_type
+        if self.buffer.sft_warmup_dataset is not None:
+            self.buffer.sft_warmup_dataset.algorithm_type = AlgorithmType.SFT
         self.buffer.read_batch_size = self.data.batch_size * self.explorer.repeat_times
 
     def check_and_update(self) -> None:
         """Check and update the config."""
         if self.trainer.trainer_type == "verl":
-            from trinity.common.verl_config import load_config
+            if self.trainer.trainer_config:
+                from trinity.common.verl_config import veRLConfig
 
-            if not os.path.isfile(self.trainer.trainer_config_path):
-                raise ValueError(f"Invalid trainer config path: {self.trainer.trainer_config_path}")
-            self.trainer.trainer_config = load_config(self.trainer.trainer_config_path)
+                trainer_config_schema = OmegaConf.structured(veRLConfig)
+                trainer_config = OmegaConf.merge(trainer_config_schema, self.trainer.trainer_config)
+                self.trainer.trainer_config = OmegaConf.to_object(trainer_config)
+            else:
+                if os.path.isfile(self.trainer.trainer_config_path):
+                    from trinity.common.verl_config import load_config
+
+                    self.trainer.trainer_config = load_config(self.trainer.trainer_config_path)
+                else:
+                    raise ValueError(
+                        f"Invalid trainer config path: {self.trainer.trainer_config_path}"
+                    )
         else:
             raise ValueError(f"Invalid trainer type: {self.trainer_type}")
 
