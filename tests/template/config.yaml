@@ -28,8 +28,6 @@ explorer:
   enforce_eager: true
   dtype: bfloat16
   temperature: 1.0
-  top_p: 1.0
-  top_k: -1
   seed: 42
   logprobs: 0
   backend: nccl
@@ -37,10 +35,14 @@ explorer:
 trainer:
   trainer_type: verl
   trainer_config_path: tests/template/verl_config.yaml
+  sft_warmup_iteration: 0
+  eval_interval: 1000
+  save_interval: 100
 monitor:
   project: unittest
   name: test
 synchronizer:
-  sync_method: offline
+  sync_method: checkpoint
   sync_iteration_interval: 10
+  sync_timeout: 1200
   wait_for_checkpoint: false

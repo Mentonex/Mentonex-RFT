@@ -47,8 +47,6 @@ class vLLMAysncRolloutModel(InferenceModel):
         self.default_sampling_params = vllm.SamplingParams(
             n=config.explorer.repeat_times,
             temperature=config.explorer.temperature,
-            top_p=config.explorer.top_p,
-            top_k=config.explorer.top_k,
             max_tokens=config.model.max_response_tokens,
             min_tokens=1,
             truncate_prompt_tokens=config.model.max_prompt_tokens,
@@ -260,7 +258,8 @@ class vLLMAysncRolloutModel(InferenceModel):
         world_size: int,
         group_name: str,
         backend: str = "nccl",
-        offline_update: bool = True,
+        timeout: int = 1200,
+        update_with_checkpoint: bool = True,
     ):
         return self.async_llm.engine.model_executor.collective_rpc(
             "init_process_group",
@@ -271,7 +270,8 @@ class vLLMAysncRolloutModel(InferenceModel):
                 world_size,
                 group_name,
                 backend,
-                offline_update,
+                timeout,
+                update_with_checkpoint,
             ),
         )
 

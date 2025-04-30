@@ -13,7 +13,7 @@ import ray
 
 from trinity.buffer import get_buffer_reader
 from trinity.common.config import Config
-from trinity.common.constants import AlgorithmType, ReadStrategy
+from trinity.common.constants import AlgorithmType, ReadStrategy, SyncMethod
 from trinity.common.experience import Experiences
 from trinity.utils.log import get_logger
 
@@ -110,7 +110,7 @@ class Trainer:
 
     def sync_weight(self) -> None:
         """Sync the model weight."""
-        if self.config.synchronizer.sync_method == "online":
+        if self.config.synchronizer.sync_method == SyncMethod.NCCL:
             self.engine.sync_weight()
 
     def flush_log(self, step: int) -> None:
