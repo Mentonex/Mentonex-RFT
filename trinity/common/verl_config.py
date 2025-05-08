@@ -5,6 +5,10 @@ from omegaconf import OmegaConf
 
 from trinity.common.config import BufferConfig, Config, SynchronizerConfig
 from trinity.common.constants import AlgorithmType
+from trinity.trainer.verl.ray_trainer import AdvantageEstimator
+from trinity.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -245,7 +249,7 @@ class Trainer:
     training_rollout_mode: str = "parallel"
     enable_exp_buffer: bool = True
     sync_freq: int = 0
-    sft_warmup_iteration: int = 0
+    sft_warmup_steps: int = 0
     max_actor_ckpt_to_keep: Optional[int] = None
     max_critic_ckpt_to_keep: Optional[int] = None
 
@@ -278,7 +282,7 @@ class veRLConfig:
         else:
             # for multi-node scenarios, some nodes for rollout, others for training
             self.trainer.n_gpus_per_node = config.cluster.gpu_per_node
-        self.trainer.sync_freq = config.synchronizer.sync_iteration_interval
+        self.trainer.sync_freq = config.synchronizer.sync_interval
         self.trainer.save_freq = config.trainer.save_interval
         self.synchronizer = config.synchronizer
         self.actor_rollout_ref.synchronizer = config.synchronizer
@@ -289,20 +293,31 @@ class veRLConfig:
                 f"batch_size ({config.data.batch_size}) must be divisible by ({world_size})"
             )
         # TODO: use dynamic read_batch_size to support multi-round scenarios
-        # Get the experiences of one explore iteration
+        # Get the experiences of one explore step
         self.buffer.pad_token_id = config.buffer.pad_token_id
         self.trainer.project_name = config.monitor.project
         self.trainer.experiment_name = config.monitor.name
         self.data.train_batch_size = config.data.batch_size
         self.trainer.default_local_dir = config.model.checkpoint_path
-        self.trainer.sft_warmup_iteration = config.trainer.sft_warmup_iteration
+        self.trainer.sft_warmup_steps = config.trainer.sft_warmup_steps
         self.actor_rollout_ref.actor.ppo_mini_batch_size = config.data.batch_size
         self.actor_rollout_ref.rollout.temperature = config.explorer.temperature
         self.actor_rollout_ref.rollout.n = config.explorer.repeat_times
+        self.critic.ppo_mini_batch_size = config.data.batch_size
+
         self.actor_rollout_ref.actor.algorithm_type = config.trainer.algorithm_type
+        if config.trainer.algorithm_type == AlgorithmType.PPO:
+            logger.info("Using GAE `adv_estimator` for PPO")
+            self.algorithm.adv_estimator = AdvantageEstimator.GAE.value
+        elif config.trainer.algorithm_type == AlgorithmType.GRPO:
+            logger.info("Using GRPO `adv_estimator` for GRPO")
+            self.algorithm.adv_estimator = AdvantageEstimator.GRPO.value
 
         if self.actor_rollout_ref.actor.algorithm_type.is_dpo():  # for DPO
-            print("Warning: DPO micro batch size is doubled for computing loss.")
+            if not self.actor_rollout_ref.actor.use_kl_loss:
+                self.actor_rollout_ref.actor.use_kl_loss = True
+                logger.warning("DPO must use KL loss.")
+            logger.warning("DPO micro batch size is doubled for computing loss.")
             self.actor_rollout_ref.actor.ppo_mini_batch_size *= 2
             self.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu *= 2  # type: ignore
             self.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu *= 2  # type: ignore

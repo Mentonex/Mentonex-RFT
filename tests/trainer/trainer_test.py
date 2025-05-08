@@ -29,7 +29,7 @@ class BaseTrainerCase(RayUnittestBase):
         self.config.model.checkpoint_path = os.path.join(
             get_checkpoint_path(), f"train-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         )
-        self.config.synchronizer.sync_iteration_interval = 2
+        self.config.synchronizer.sync_interval = 2
         self.config.synchronizer.sync_method = SyncMethod.NCCL
         self.config.explorer.eval_interval = 4
         self.config.trainer.eval_interval = 4
@@ -61,12 +61,12 @@ class TestTrainerCountdown(BaseTrainerCase):
         self.assertTrue(len(response_metrics) > 0)
         self.assertEqual(parser.metric_max_step(response_metrics[0]), 8)
         # check checkpoint
-        from trinity.common.models.utils import get_checkpoint_dir_with_iteration
+        from trinity.common.models.utils import get_checkpoint_dir_with_step_num
 
-        checkpoint_dir = get_checkpoint_dir_with_iteration(
+        checkpoint_dir = get_checkpoint_dir_with_step_num(
             checkpoint_root_path=self.config.model.checkpoint_path,
             trainer_type=self.config.trainer.trainer_type,
-            iteration_num=None,
+            step_num=None,
         )
         self.assertTrue(os.path.exists(checkpoint_dir))
         self.assertTrue(checkpoint_dir.endswith("step_8"))

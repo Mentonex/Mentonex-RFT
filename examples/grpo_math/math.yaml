@@ -46,13 +46,13 @@ explorer:
   max_waiting_steps: 4
 synchronizer:
   sync_method: 'nccl'
-  sync_iteration_interval: 2
+  sync_interval: 2
   sync_timeout: 1200
 trainer:
   trainer_type: 'verl'
-  algorithm_type: ppo
+  algorithm_type: grpo
   trainer_config_path: 'examples/grpo_math/train_math.yaml'
-  sft_warmup_iteration: 0 # Set to integer to enable sft warmup
+  sft_warmup_steps: 0 # Set to integer to enable sft warmup
   eval_interval: 10
   save_interval: 100
 monitor:

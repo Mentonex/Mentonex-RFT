@@ -172,7 +172,7 @@ class ExplorerConfig:
     backend: str = "nccl"
     use_ray: bool = False
     gpu_memory_utilization: float = 0.9
-    enable_chunked_prefil: bool = False
+    enable_chunked_prefill: bool = False
     use_v1: bool = True
     bundle_indices: str = ""  # DO NOT SET this field
 
@@ -193,11 +193,12 @@ class TrainerConfig:
     trainer_config: Any = field(default_factory=dict)
 
     # train algorithm
-    algorithm_type: AlgorithmType = AlgorithmType.PPO
+    algorithm_type: AlgorithmType = AlgorithmType.PPO  # automatically set
     get_exp_strategy: Optional[str] = None
 
     # warmup config
-    sft_warmup_iteration: int = 0
+    sft_warmup_steps: int = 0
+    sft_warmup_iteration: Optional[int] = None  # deprecated
 
 
 @dataclass
@@ -220,8 +221,10 @@ class SynchronizerConfig:
 
     # TODO: rename to "checkpoint", "nccl", "ipc"
     sync_method: SyncMethod = SyncMethod.NCCL
-    # sync weights every `sync_iteration_interval` iterations
-    sync_iteration_interval: int = 1
+    # sync weights every `sync_interval` steps
+    sync_interval: int = 1
+    # `sync_iteration_interval` is deprecated, use `sync_interval` instead
+    sync_iteration_interval: Optional[int] = None
     sync_timeout: int = 1200
     # wait for the lastest checkpoint to be ready
     wait_for_checkpoint: bool = False
@@ -251,9 +254,9 @@ class Config:
             OmegaConf.save(self, f)
 
     def _check_buffer(self) -> None:
-        if self.trainer.sft_warmup_iteration > 0 and self.buffer.sft_warmup_dataset is None:
+        if self.trainer.sft_warmup_steps > 0 and self.buffer.sft_warmup_dataset is None:
             raise ValueError(
-                "buffer.sft_warmup_dataset is required when trainer.sft_warmup_iteration > 0"
+                "buffer.sft_warmup_dataset is required when trainer.sft_warmup_steps > 0"
             )
         if self.buffer.db_url:
             raise ValueError(
@@ -277,7 +280,6 @@ class Config:
                 self.buffer.train_dataset = DatasetConfig(
                     name="experience_buffer",
                     storage_type=StorageType.QUEUE,
-                    algorithm_type=self.trainer.algorithm_type,
                 )
                 logger.info(f"Auto set `buffer.train_dataset` to {self.buffer.train_dataset}")
         else:  # TODO: to be check
@@ -286,12 +288,11 @@ class Config:
                     self.buffer.train_dataset = DatasetConfig(
                         name="dpo_train_dataset",
                         storage_type=StorageType.FILE,
-                        algorithm_type=self.trainer.algorithm_type,
                     )
                     logger.info(f"Auto set `buffer.train_dataset` to {self.buffer.train_dataset}")
             if self.buffer.train_dataset is None:
                 raise ValueError("buffer.train_dataset is required when mode is not 'both'")
-            self.buffer.train_dataset.algorithm_type = self.trainer.algorithm_type
+        self.buffer.train_dataset.algorithm_type = self.trainer.algorithm_type
         self.buffer.train_dataset.namespace = f"{self.monitor.project}-{self.monitor.name}"
         if self.buffer.sft_warmup_dataset is not None:
             self.buffer.sft_warmup_dataset.namespace = f"{self.monitor.project}-{self.monitor.name}"
@@ -307,41 +308,63 @@ class Config:
             raise ValueError("DPO does not support `both` mode")
 
         # check model path
-        if not os.path.isabs(self.model.model_path):
-            self.model.model_path = os.path.join(os.getcwd(), self.model.model_path)
         if not os.path.isabs(self.model.checkpoint_path):
             self.model.checkpoint_path = os.path.join(os.getcwd(), self.model.checkpoint_path)
         if not self.model.critic_model_path:
             self.model.critic_model_path = self.model.model_path
 
         # check synchronizer
-        assert self.synchronizer.sync_iteration_interval > 0
+        if self.synchronizer.sync_iteration_interval is not None:
+            logger.warning(
+                f"`synchronizer.sync_iteration_interval` is deprecated, please use `synchronizer.sync_interval` instead. "
+                f"And `synchronizer.sync_interval` will set to {self.synchronizer.sync_iteration_interval} instead."
+            )
+            self.synchronizer.sync_interval = self.synchronizer.sync_iteration_interval
+        assert self.synchronizer.sync_interval > 0
         self.synchronizer.explorer_world_size = (
             self.explorer.engine_num * self.explorer.tensor_parallel_size
         )
         self.synchronizer.backend = self.explorer.backend
+        if (
+            self.trainer.algorithm_type == AlgorithmType.DPO
+            and self.synchronizer.sync_method != SyncMethod.CHECKPOINT
+        ):
+            self.synchronizer.sync_method = SyncMethod.CHECKPOINT
+            logger.warning(
+                "DPO only supports checkpoint synchronization, set `synchronizer.sync_method` to `checkpoint`."
+            )
         if self.synchronizer.sync_method == SyncMethod.NCCL and self.mode != "both":
             raise ValueError("`nccl` synchronization is only supported in both mode.")
 
         # check eval_interval
-        if self.trainer.eval_interval % self.synchronizer.sync_iteration_interval != 0:
+        if (
+            self.trainer.algorithm_type != AlgorithmType.DPO
+            and self.trainer.eval_interval % self.synchronizer.sync_interval != 0
+        ):
             self.trainer.eval_interval = (
-                max(self.trainer.eval_interval // self.synchronizer.sync_iteration_interval, 1)
-            ) * self.synchronizer.sync_iteration_interval
-            print(
-                f"Warning: eval_interval is not a multiple of sync_iteration_interval; adjusted to the nearest integer={self.trainer.eval_interval}."
+                max(self.trainer.eval_interval // self.synchronizer.sync_interval, 1)
+            ) * self.synchronizer.sync_interval
+            logger.warning(
+                f"`eval_interval` is not a multiple of `sync_interval`; adjusted to the nearest integer={self.trainer.eval_interval}."
             )
         if self.explorer.eval_interval != self.trainer.eval_interval:
             self.explorer.eval_interval = self.trainer.eval_interval
-            print(
-                f"Warning: explorer.eval_interval is not equal to trainer.eval_interval; adjusted to the same value={self.trainer.eval_interval}."
+            logger.warning(
+                f"`explorer.eval_interval` is not equal to `trainer.eval_interval`; adjusted to the same value={self.trainer.eval_interval}."
             )
 
         # check save_interval
-        if self.synchronizer.sync_method == SyncMethod.CHECKPOINT:
-            self.trainer.save_interval = (
-                self.synchronizer.sync_iteration_interval
-            )  # TODO: not proper for DPO
+        if (
+            self.trainer.algorithm_type != AlgorithmType.DPO
+            and self.synchronizer.sync_method == SyncMethod.CHECKPOINT
+        ):
+            if self.trainer.save_interval != self.synchronizer.sync_interval:
+                logger.warning(
+                    f"When `trainer.algorithm_type != DPO` and `synchronizer.sync_method == checkpoint`, "
+                    f"`trainer.save_interval` will be set to "
+                    f"`synchronizer.sync_interval = {self.synchronizer.sync_interval}`."
+                )
+            self.trainer.save_interval = self.synchronizer.sync_interval
 
         # check monitor
         if not self.monitor.cache_root_dir:
@@ -358,6 +381,13 @@ class Config:
                 "Failed to create cache dir, please check "
                 f"your checkpoint path: {self.model.checkpoint_path}"
             )
+
+        if self.trainer.sft_warmup_iteration is not None:
+            logger.warning(
+                f"`trainer.sft_warmup_iteration` is deprecated, please use `trainer.sft_warmup_steps` instead. "
+                f"And `trainer.sft_warmup_steps` will be set to {self.trainer.sft_warmup_iteration} instead."
+            )
+            self.trainer.sft_warmup_steps = self.trainer.sft_warmup_iteration
 
         # check buffer
         self._check_buffer()

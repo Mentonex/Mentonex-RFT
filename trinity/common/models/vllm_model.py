@@ -65,7 +65,7 @@ class vLLMRolloutModel(InferenceModel):
             dtype=config.explorer.dtype,
             trust_remote_code=True,
             gpu_memory_utilization=config.explorer.gpu_memory_utilization,
-            enable_chunked_prefill=config.explorer.enable_chunked_prefil,
+            enable_chunked_prefill=config.explorer.enable_chunked_prefill,
             # max_num_batched_tokens=256,
             **kwargs,
         )
@@ -220,12 +220,20 @@ class vLLMRolloutModel(InferenceModel):
             List[Experience]: A list of experiences containing the response text.
         """
         # TODO: support tools and other fields
-        prompt = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            chat_template=self.chat_template,
-        )
+        if messages[-1]["role"] == "assistant":
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                continue_final_message=True,
+                chat_template=self.chat_template,
+            )
+        else:
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                chat_template=self.chat_template,
+            )
         return self.generate([prompt], **kwargs)
 
     def logprobs(self, token_ids: List[int]) -> torch.Tensor:

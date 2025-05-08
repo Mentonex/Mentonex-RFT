@@ -118,7 +118,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             resource_pool_spec=resource_pool_spec, mapping=mapping
         )
 
-        self.sft_iter_num = 0
         super().__init__(
             config,
             tokenizer,
@@ -147,9 +146,11 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         self.actor_rollout_wg.setup_weight_sync_group()
 
         self.global_steps = 0
+        self.sft_warmup_step_num = 0
 
         # load checkpoint before doing anything
         self._load_checkpoint()
+        self.sft_warmup_step_num = min(self.global_steps, self.config.trainer.sft_warmup_steps)
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
@@ -183,7 +184,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         # else:
         self.total_training_steps = float("inf")
 
-    def train_dpo_iteration(self, experiences: Experiences) -> Tuple[bool, int]:
+    def train_dpo_step(self, experiences: Experiences) -> Tuple[bool, int]:
         metrics = {}
         timing_raw = {}
 
@@ -246,7 +247,9 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         self.global_steps += 1
         return True, self.global_steps - 1
 
-    def train_sft_iteration(self, experiences: Experiences) -> Tuple[bool, int]:
+    def train_sft_step(self, experiences: Experiences) -> Tuple[bool, int]:
+        if self.sft_warmup_step_num >= self.config.trainer.sft_warmup_steps:
+            return False, self.global_steps - 1
         metrics = {}
         timing_raw = {}
 
@@ -296,24 +299,20 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
         # TODO: log as sft metrics
-        self.sft_iter_num += 1
         self.logger.log(data=metrics, step=self.global_steps)
-        # print(f'{self.sft_iter_num=}, {self.config.synchronizer.sync_iteration_interval * self.config.trainer.sft_warmup_iteration=}')
-        if (
-            self.sft_iter_num
-            == self.config.synchronizer.sync_iteration_interval
-            * self.config.trainer.sft_warmup_iteration
-        ):
+        self.sft_warmup_step_num += 1
+        self.global_steps += 1
+        if self.sft_warmup_step_num == self.config.trainer.sft_warmup_steps:
             self.logger.log(
-                data={"sft_warmup_iteration": self.sft_iter_num},
+                data={"sft_warmup_steps": self.sft_warmup_step_num},
                 step=self.global_steps,
             )
             with _timer("save_checkpoint", timing_raw):
                 self._save_checkpoint()
-        self.global_steps += 1
+            return False, self.global_steps - 1
         return True, self.global_steps - 1
 
-    def train_rft_iteration(self, experiences: Experiences) -> Tuple[bool, int]:
+    def train_rft_step(self, experiences: Experiences) -> Tuple[bool, int]:
         metrics = {}
         timing_raw = {}
 

@@ -80,7 +80,7 @@ class vLLMAysncRolloutModel(InferenceModel):
             task="generate",
             disable_log_requests=True,
             gpu_memory_utilization=config.explorer.gpu_memory_utilization,
-            enable_chunked_prefill=config.explorer.enable_chunked_prefil,
+            enable_chunked_prefill=config.explorer.enable_chunked_prefill,
             # max_num_batched_tokens=256, # you can further set this parameter to reduce the vllm peak memory usage
         )
         self.async_llm = vllm.AsyncLLMEngine.from_engine_args(engine_args)
@@ -122,12 +122,20 @@ class vLLMAysncRolloutModel(InferenceModel):
             self.tokenizer = await self.async_llm.get_tokenizer()
         if self.chat_template is None:
             self.chat_template = self.tokenizer.get_chat_template()
-        prompt = self.tokenizer.apply_chat_template(
-            messages,
-            chat_template=self.chat_template,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if messages[-1]["role"] == "assistant":
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                continue_final_message=True,
+                chat_template=self.chat_template,
+            )
+        else:
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                chat_template=self.chat_template,
+            )
         return await self.generate_async(prompt=prompt, **kwargs)
 
     async def generate_async(self, prompt: str, **kwargs) -> List[Experience]:

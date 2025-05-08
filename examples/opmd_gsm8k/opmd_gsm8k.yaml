@@ -39,13 +39,13 @@ explorer:
   max_waiting_steps: 4
 synchronizer:
   sync_method: 'nccl'
-  sync_iteration_interval: 10
+  sync_interval: 10
   sync_timeout: 1200
 trainer:
   trainer_type: 'verl'
   algorithm_type: opmd
   trainer_config_path: 'examples/opmd_gsm8k/train_opmd_gsm8k.yaml'
-  sft_warmup_iteration: 0
+  sft_warmup_steps: 0
   save_interval: 100
 monitor:
   cache_root_dir: ""
