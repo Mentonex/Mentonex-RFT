@@ -9,18 +9,14 @@ import ray
 import torch
 
 from trinity.buffer import get_buffer_writer
+from trinity.buffer.buffer import get_buffer_reader
 from trinity.common.config import Config
-from trinity.common.constants import (
-    ROLLOUT_WEIGHT_SYNC_GROUP_NAME,
-    SyncMethod,
-    TaskType,
-)
+from trinity.common.constants import ROLLOUT_WEIGHT_SYNC_GROUP_NAME, SyncMethod
 from trinity.common.models import create_rollout_models
 from trinity.common.models.utils import (
     get_checkpoint_dir_with_step_num,
     load_state_dict,
 )
-from trinity.common.task import TaskSet
 from trinity.explorer.runner_pool import RunnerPool
 from trinity.manager.manager import CacheManager
 from trinity.utils.log import get_logger
@@ -39,17 +35,16 @@ class Explorer:
         self.config = config
         self.models = create_rollout_models(config)
         self.experience_buffer = get_buffer_writer(
-            self.config.buffer.train_dataset,  # type: ignore
+            self.config.buffer.explorer_output,  # type: ignore
             self.config.buffer,
         )
-        self.taskset = TaskSet.load(
-            self.config.data, explorer_meta.get("latest_task_index", 0), TaskType.EXPLORE
+        self.config.buffer.explorer_input.taskset.index = explorer_meta.get("latest_task_index", 0)
+        self.taskset = get_buffer_reader(
+            self.config.buffer.explorer_input.taskset, self.config.buffer
         )
-        if self.config.data.eval_split:
-            self.eval_taskset = TaskSet.load(self.config.data, task_type=TaskType.EVAL)
-        else:
-            self.eval_taskset = None
-        self.task_iter = None
+        self.eval_tasksets = []
+        for eval_taskset_config in self.config.buffer.explorer_input.eval_tasksets:
+            self.eval_tasksets.append(get_buffer_reader(eval_taskset_config, self.config.buffer))
         self.runner_pool = self._init_runner_pool()
         self.monitor = Monitor(
             project=self.config.monitor.project,
@@ -59,8 +54,10 @@ class Explorer:
         )
         self.max_pending_task_num = self.config.explorer.runner_num
         self.max_waiting_steps = max(1, int(self.config.explorer.max_waiting_steps))
-        self.batch_size = config.data.batch_size
-        self.update_interval = self.config.synchronizer.sync_interval * self.config.data.batch_size
+        self.batch_size = config.global_config.batch_size
+        self.update_interval = (
+            self.config.synchronizer.sync_interval * self.config.global_config.batch_size
+        )
         self.use_checkpoint_weights_update = (
             self.config.synchronizer.sync_method == SyncMethod.CHECKPOINT
         )
@@ -164,7 +161,7 @@ class Explorer:
             if not explore_status:
                 break
             self.sync_weight()
-            if explore_iter % self.config.explorer.eval_interval == 0:
+            if explore_iter % self.config.global_config.eval_interval == 0:
                 self.eval()
                 self.logger.info("Evaluation finished.")
         self.logger.info("Explorer finished.")
@@ -179,17 +176,17 @@ class Explorer:
             explore_status: whether there are more tasks to explore.
             explore_step_num: the number of explore steps
         """
-        if self.task_iter is None:
-            self.task_iter = iter(self.taskset)
-        task_num_per_period = self.config.synchronizer.sync_interval * self.config.data.batch_size
+        task_num_per_period = (
+            self.config.synchronizer.sync_interval * self.config.global_config.batch_size
+        )
 
         st = time.time()
         all_metrics = defaultdict(list)
 
         # submit tasks of this step
         try:
-            tasks = [next(self.task_iter) for _ in range(task_num_per_period)]  # type: ignore
-            self.runner_pool.run_tasks(tasks)
+            tasks = [self.taskset.read() for _ in range(task_num_per_period)]
+            self.runner_pool.run_tasks(tasks)  # type: ignore
         except StopIteration:
             self.experience_buffer.finish()
             self.logger.warning("No more tasks in the task set. Stop exploring.")
@@ -205,7 +202,7 @@ class Explorer:
                     self.logger.error(f"Error when running task: {status.message}")
                     try:
                         # submit another task to replace the failed task
-                        self.runner_pool.run_tasks(next(self.task_iter))  # type: ignore
+                        self.runner_pool.run_tasks(self.taskset.read())
                     except StopIteration:
                         self.logger.warning("No more tasks in the task set. Stop exploring.")
                         return False, self.step_num
@@ -230,30 +227,37 @@ class Explorer:
 
     def eval(self) -> Tuple[bool, int]:
         """Evaluation on all evaluation data samples."""
-        if self.eval_taskset is None:
+        if len(self.eval_tasksets) == 0:
             self.logger.warning("No evaluation data samples. Skip evaluation.")
             return True, self.step_num
         self.logger.info("Evaluation started.")
-        st = time.time()
-        all_metrics = defaultdict(list)
+        all_st = time.time()
+        log_metrics = {}
+        for eval_taskset in self.eval_tasksets:
+            st = time.time()
+            all_metrics = defaultdict(list)
 
-        tasks = [task for task in self.eval_taskset]
-        self.runner_pool.run_tasks(tasks)
+            def wait():
+                status_list = self.runner_pool.get_next_unorder()
+                if not isinstance(status_list, list):
+                    status_list = [status_list]
+                for status in status_list:
+                    if not status.ok:
+                        self.logger.error(f"Error when running task: {status.message}")
+                    else:
+                        for metric_name, metric_value in status.metric.items():
+                            all_metrics[metric_name].append(metric_value)
 
-        while self.runner_pool.has_next():
-            # TODO: use unordered queue to avoid blocking
-            status_list = self.runner_pool.get_next_unorder()
-            if not isinstance(status_list, list):
-                status_list = [status_list]
-            for status in status_list:
-                if not status.ok:
-                    self.logger.error(f"Error when running task: {status.message}")
-                else:
-                    for metric_name, metric_value in status.metric.items():
-                        all_metrics[metric_name].append(metric_value)
-
-        log_metrics = self.monitor.calculate_metrics(all_metrics, prefix="eval")  # type: ignore
-        log_metrics["eval/total_time"] = time.time() - st
+            for _ in range(len(eval_taskset)):  # type: ignore
+                if not self.runner_pool.has_free():
+                    wait()
+                self.runner_pool.run_tasks([eval_taskset.read()])  # type: ignore
+            while self.runner_pool.has_next():
+                wait()
+            metrics = self.monitor.calculate_metrics(all_metrics, prefix=f"eval/{eval_taskset.name}")  # type: ignore
+            log_metrics.update(metrics)
+            log_metrics[f"eval/{eval_taskset.name}/time"] = time.time() - st
+        log_metrics["eval/total_time"] = time.time() - all_st
         self.monitor.log(log_metrics, step=self.step_num)  # type: ignore
         return True, self.step_num
 

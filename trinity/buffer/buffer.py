@@ -4,7 +4,7 @@ import ray
 
 from trinity.buffer.buffer_reader import BufferReader
 from trinity.buffer.buffer_writer import BufferWriter
-from trinity.common.config import BufferConfig, Config, DatasetConfig
+from trinity.common.config import BufferConfig, Config, StorageConfig
 from trinity.common.constants import StorageType
 
 
@@ -13,48 +13,53 @@ class Buffer:
     """Responsible for storing experiences."""
 
     def __init__(self, config: Config):
-        self.buffer_mapping: dict[str, DatasetConfig] = {}
+        self.buffer_mapping: dict[str, StorageConfig] = {}
         self._register_from_config(config)
 
-    def get_dataset_info(self, dataset_name: str) -> DatasetConfig:
-        dataset_config = self.buffer_mapping.get(dataset_name, None)
-        if dataset_config is None:
+    def get_dataset_info(self, dataset_name: str) -> StorageConfig:
+        storage_config = self.buffer_mapping.get(dataset_name, None)
+        if storage_config is None:
             raise ValueError(f"{dataset_name} not found.")
-        return dataset_config
+        return storage_config
 
-    def register_dataset(self, dataset_config: DatasetConfig) -> None:
-        if dataset_config.name in self.buffer_mapping:
-            raise ValueError(f"{dataset_config.name} already exists.")
-        self.buffer_mapping[dataset_config.name] = dataset_config
+    def register_dataset(self, storage_config: StorageConfig) -> None:
+        if storage_config.name in self.buffer_mapping:
+            raise ValueError(f"{storage_config.name} already exists.")
+        self.buffer_mapping[storage_config.name] = storage_config
 
 
-def get_buffer_reader(dataset_config: DatasetConfig, buffer_config: BufferConfig) -> BufferReader:
+def get_buffer_reader(storage_config: StorageConfig, buffer_config: BufferConfig) -> BufferReader:
     """Get a buffer reader for the given dataset name."""
-    if dataset_config.storage_type == StorageType.SQL:
+    if storage_config.storage_type == StorageType.SQL:
         from trinity.buffer.reader.sql_reader import SQLReader
 
-        return SQLReader(dataset_config, buffer_config)
-    elif dataset_config.storage_type == StorageType.QUEUE:
+        return SQLReader(storage_config, buffer_config)
+    elif storage_config.storage_type == StorageType.QUEUE:
         from trinity.buffer.reader.queue_reader import QueueReader
 
-        return QueueReader(dataset_config, buffer_config)
-    elif dataset_config.storage_type == StorageType.FILE:
-        from trinity.buffer.reader.file_reader import FileReader
+        return QueueReader(storage_config, buffer_config)
+    elif storage_config.storage_type == StorageType.FILE:
+        from trinity.buffer.reader.file_reader import FILE_READERS
 
-        return FileReader(dataset_config, buffer_config)
+        file_read_type = storage_config.algorithm_type
+        if file_read_type is not None:
+            file_read_type = file_read_type.value
+        else:
+            file_read_type = "rollout"
+        return FILE_READERS.get(file_read_type)(storage_config, buffer_config)
     else:
-        raise ValueError(f"{dataset_config.storage_type} not supported.")
+        raise ValueError(f"{storage_config.storage_type} not supported.")
 
 
-def get_buffer_writer(dataset_config: DatasetConfig, buffer_config: BufferConfig) -> BufferWriter:
+def get_buffer_writer(storage_config: StorageConfig, buffer_config: BufferConfig) -> BufferWriter:
     """Get a buffer writer for the given dataset name."""
-    if dataset_config.storage_type == StorageType.SQL:
+    if storage_config.storage_type == StorageType.SQL:
         from trinity.buffer.writer.sql_writer import SQLWriter
 
-        return SQLWriter(dataset_config, buffer_config)
-    elif dataset_config.storage_type == StorageType.QUEUE:
+        return SQLWriter(storage_config, buffer_config)
+    elif storage_config.storage_type == StorageType.QUEUE:
         from trinity.buffer.writer.queue_writer import QueueWriter
 
-        return QueueWriter(dataset_config, buffer_config)
+        return QueueWriter(storage_config, buffer_config)
     else:
-        raise ValueError(f"{dataset_config.storage_type} not supported.")
+        raise ValueError(f"{storage_config.storage_type} not supported.")

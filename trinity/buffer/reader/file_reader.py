@@ -2,55 +2,41 @@
 
 from typing import List, Optional
 
+import datasets
 import transformers
 from datasets import load_dataset
 
 from trinity.buffer.buffer_reader import BufferReader
-from trinity.common.config import BufferConfig, DatasetConfig
-from trinity.common.constants import (
-    AlgorithmType,
-    PromptType,
-    ReadStrategy,
-    StorageType,
-)
+from trinity.common.config import BufferConfig, StorageConfig
+from trinity.common.constants import AlgorithmType, PromptType, ReadStrategy, TaskType
 from trinity.common.experience import Experience
+from trinity.common.rewards import REWARD_FUNCTIONS
+from trinity.common.task import Task
+from trinity.common.workflows import WORKFLOWS
+from trinity.utils.registry import Registry
+
+FILE_READERS = Registry("file_readers")
 
 
-class FileReader(BufferReader):
-    """Reader of the File buffer."""
-
-    def __init__(self, meta: DatasetConfig, config: BufferConfig) -> None:
-        assert meta.storage_type == StorageType.FILE
-        if meta.algorithm_type == AlgorithmType.SFT:
-            self.reader = SFTDataReader(meta, config)
-        elif meta.algorithm_type == AlgorithmType.DPO:
-            self.reader = DPODataReader(meta, config)
-        else:
-            # TODO: support read rollout task
-            raise ValueError(f"Unsupported algorithm type: {meta.algorithm_type}")
-
-    def read(self, strategy: Optional[ReadStrategy] = None) -> List:
-        """Read data from the buffer."""
-        if strategy is not None and strategy != ReadStrategy.FIFO:
-            raise ValueError(f"Unsupported read strategy: {strategy}")
-        return self.reader.read()
-
-
-class SFTDataReader:
+@FILE_READERS.register_module(AlgorithmType.SFT.value)
+class SFTDataReader(BufferReader):
     """Reader for SFT file data."""
 
-    def __init__(self, meta: DatasetConfig, config: BufferConfig):
-        self.train_split = meta.kwargs.get("train_split", "train")
-        self.prompt_type = PromptType(meta.kwargs.get("prompt_type", "messages"))
-        self.messages_key = meta.kwargs.get("messages_key", "messages")
-        self.prompt_key = meta.kwargs.get("prompt_key", "prompt")
-        self.response_key = meta.kwargs.get("response_key", "response")
+    def __init__(self, meta: StorageConfig, config: BufferConfig):
+        self.split = meta.split
+        subset_name = meta.subset_name
+        self.prompt_type = meta.format.prompt_type
+        self.messages_key = meta.format.messages_key
+        self.prompt_key = meta.format.prompt_key
+        self.response_key = meta.format.response_key
         self.read_batch_size = config.read_batch_size
-        self.dataset = load_dataset(meta.path)[self.train_split]
+        self.dataset = load_dataset(
+            meta.path, name=subset_name, split=self.split
+        )  # TODO: support resume
         self.data_iter = self.dataset.iter(self.read_batch_size, drop_last_batch=True)
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(config.tokenizer_path)
 
-    def read(self) -> List:
+    def read(self, strategy: Optional[ReadStrategy] = None) -> List:
         try:
             batch_data = next(self.data_iter)
         except StopIteration:
@@ -111,15 +97,19 @@ class SFTDataReader:
         return exp_list
 
 
-class DPODataReader:
-    def __init__(self, meta: DatasetConfig, config: BufferConfig):
-        self.train_split = meta.kwargs.get("train_split", "train")
-        self.prompt_type = PromptType(meta.kwargs.get("prompt_type", "messages"))
-        self.prompt_key = meta.kwargs.get("prompt_key", "prompt")
-        self.chosen_key = meta.kwargs.get("chosen_key", "chosen")
-        self.rejected_key = meta.kwargs.get("rejected_key", "rejected")
+@FILE_READERS.register_module(AlgorithmType.DPO.value)
+class DPODataReader(BufferReader):
+    def __init__(self, meta: StorageConfig, config: BufferConfig):
+        self.split = meta.split
+        subset_name = meta.subset_name
+        self.prompt_type = meta.format.prompt_type
+        self.prompt_key = meta.format.prompt_key
+        self.chosen_key = meta.format.chosen_key
+        self.rejected_key = meta.format.rejected_key
         self.read_batch_size = config.read_batch_size
-        self.dataset = load_dataset(meta.path)[self.train_split]
+        self.dataset = load_dataset(
+            meta.path, name=subset_name, split=self.split
+        )  # TODO: support resume
         self.data_iter = self.dataset.iter(self.read_batch_size, drop_last_batch=True)
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(config.tokenizer_path)
 
@@ -131,7 +121,7 @@ class DPODataReader:
         else:
             return item
 
-    def read(self) -> List:
+    def read(self, strategy: Optional[ReadStrategy] = None) -> List:
         try:
             batch_data = next(self.data_iter)
         except StopIteration:
@@ -178,3 +168,66 @@ class DPODataReader:
             )
             exp_list.append(experience)
         return exp_list
+
+
+@FILE_READERS.register_module("rollout")
+class RolloutDataReader(BufferReader):
+    def __init__(self, meta: StorageConfig, config: BufferConfig):
+        self.name = meta.name
+        self.split = meta.split
+        subset_name = meta.subset_name
+        # disable datasets caching to avoid reuse old-version dataset
+        datasets.disable_caching()
+        self.dataset = load_dataset(
+            meta.path, name=subset_name, split=self.split
+        )  # TODO: may from db_url
+        # if task_type != TaskType.EVAL and config.db_url != "":
+        #     logger.info(f"Loading dataset from database with url: {config.db_url}")
+        #     db_type = config.db_url.split(":")[0]
+        #     db_name = config.db_url.split("/")[-1]
+        #     dataset = Dataset.from_sql(RftDatasetModel.__tablename__, f"{db_type}:///{db_name}")
+        datasets.enable_caching()
+        self.index = meta.index  # TODO: apply shuffle
+
+        self.prompt_key = meta.format.prompt_key
+        self.response_key = meta.format.response_key
+        self.workflow_key = meta.format.workflow_key
+        self.reward_fn_key = meta.format.reward_fn_key
+
+        self.task_type = meta.task_type
+        self.default_workflow_cls = WORKFLOWS.get(meta.default_workflow_type)
+        self.default_reward_fn_cls = REWARD_FUNCTIONS.get(meta.default_reward_fn_type)
+        self.total_epochs = meta.total_epochs if self.task_type == TaskType.EXPLORE else 1
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def read(self, strategy: Optional[ReadStrategy] = None):
+        if self.index >= len(self.dataset) * self.total_epochs:
+            raise StopIteration
+        sample = self.dataset[self.index % len(self.dataset)]
+        task_desc = sample[self.prompt_key] if self.prompt_key in sample else None
+        truth = sample[self.response_key] if self.response_key in sample else None
+        workflow_class = (
+            WORKFLOWS.get(sample[self.workflow_key])
+            if self.workflow_key in sample
+            else self.default_workflow_cls
+        )
+        reward_fn = (
+            REWARD_FUNCTIONS.get(sample[self.reward_fn_key])
+            if self.reward_fn_key in sample
+            else self.default_reward_fn_cls
+        )
+        assert workflow_class is not None, "`default_reward_fn_type` or `workflow_key` is required"
+        task = Task(
+            task_desc=task_desc,
+            truth=truth,
+            workflow=workflow_class,
+            reward_fn=reward_fn,
+            raw=sample,
+            task_type=self.task_type,
+        )
+        self.index += 1
+        if self.task_type == TaskType.EVAL and self.index == len(self.dataset):
+            self.index = 0
+        return task

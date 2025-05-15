@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 from trinity.buffer.utils import retry_session
-from trinity.common.config import DataConfig
+from trinity.common.config import DataProcessorConfig
 from trinity.common.schema import Base, RftDatasetModel
 from trinity.data.core.dataset import RftDataset
 from trinity.utils.log import get_logger
@@ -24,7 +24,7 @@ def rft_dataset_to_model(dataset: RftDataset) -> List[RftDatasetModel]:
     # - for other keys, we just need to check if they are in the dataset
     data = dataset.data
     features = data.features
-    content_key_mapping = dataset.format_config.__dict__
+    content_key_mapping = dataset.format.__dict__
     schema_keys = {key for key in RftDatasetModel.__dict__.keys() if not key.startswith("_")}
     for schema_key in schema_keys:
         key = schema_key
@@ -44,7 +44,7 @@ def rft_dataset_to_model(dataset: RftDataset) -> List[RftDatasetModel]:
 
 
 class RftDatasetDB:
-    def __init__(self, config: DataConfig) -> None:
+    def __init__(self, config: DataProcessorConfig) -> None:
         self.db_url = config.db_url
         self.engine = create_engine(self.db_url, poolclass=NullPool)
         self.config = config

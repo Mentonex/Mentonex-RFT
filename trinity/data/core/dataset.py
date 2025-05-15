@@ -6,7 +6,7 @@ import networkx as nx
 from data_juicer.core.data.dj_dataset import Dataset
 from datasets import load_dataset
 
-from trinity.common.config import DataConfig
+from trinity.common.config import DataProcessorConfig
 from trinity.common.rewards import REWARD_FUNCTIONS
 from trinity.common.task import TaskSet
 from trinity.common.workflows import WORKFLOWS
@@ -38,18 +38,18 @@ class RftDataset:
 
     def __init__(
         self,
-        data_config: DataConfig,
+        data_config: DataProcessorConfig,
         reward_schema: Union[str, Dict] = "default",
         track_lineage: bool = True,
     ):
         self.config = data_config
-        dataset_path = data_config.dataset_path
-        if not dataset_path:
-            raise ValueError("dataset_path is not specified in DJ config")
-        dataset_config = data_config.dataset_config
-        self.data = load_dataset(dataset_path, trust_remote_code=True, **dataset_config)
+        source_data_path = data_config.source_data_path
+        if not source_data_path:
+            raise ValueError("source_data_path is not specified in DJ config")
+        load_kwargs = data_config.load_kwargs
+        self.data = load_dataset(source_data_path, trust_remote_code=True, **load_kwargs)
 
-        self.format_config = data_config.format_config
+        self.format = data_config.format
 
         self.reward_schema = self._init_reward_schema(reward_schema)
         self.stats: Dict[str, Any] = {}

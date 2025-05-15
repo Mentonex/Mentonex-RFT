@@ -35,11 +35,11 @@ A data processing engine designed for Reinforcement Fine-Tuning (RFT) of Large L
 ```python
 from trinity.common.rewards import AccuracyReward
 from trinity.common.workflows import MathWorkflow
-from trinity.common.config import DataConfig
+from trinity.common.config import DataProcessorConfig
 from trinity.data.core.dataset import RftDataset
 from trinity.data.core.formatter import BoxedMathAnswerFormatter, RLHFFormatter
 
-data_config: DataConfig = ...
+data_config: DataProcessorConfig = ...
 
 # initialize the dataset according to the data config
 dataset = RftDataset(data_config)
@@ -47,8 +47,8 @@ dataset = RftDataset(data_config)
 # format it for the target data and training format
 # e.g. format for a boxed-tagged MATH data and RLHF format
 dataset.format([
-  BoxedMathAnswerFormatter(data_config.format_config),
-  RLHFFormatter(data_config.format_config),
+  BoxedMathAnswerFormatter(data_config.format),
+  RLHFFormatter(data_config.format),
 ])
 
 # convert to a task set with global reward function and workflow
@@ -85,7 +85,7 @@ synth_data = synthesizer.process(clean_data)
 - You can either run `scripts/start_servers.py` or run `trinity/data/server.py` to start the data server.
   - Before running this config file, you need to replace the `username` and `db_name` with your own username and database name.
   - When requesting it, the server will load the dataset, clean it, compute priority scores from different dimensions, and export the result dataset to the database.
-- Then you need to prepare the `data` section in the config file (e.g. [test_cfg.yaml](tests/test_configs/active_iterator_test_cfg.yaml))
+- Then you need to prepare the `data_processor` section in the config file (e.g. [test_cfg.yaml](tests/test_configs/active_iterator_test_cfg.yaml))
   - For the `dj_config_path` argument in it, you can either specify a data-juicer config file path (e.g. [test_dj_cfg.yaml](tests/test_configs/active_iterator_test_dj_cfg.yaml)), or write the demand in `dj_process_desc` argument in natural language and our agent will help you to organize the data-juicer config.
 - Finally you can send requests to the data server to start an active iterator to process datasets in many ways:
   - Request with `curl`: `curl "http://127.0.0.1:5000/data_workflow?configPath=tests%2Ftest_configs%2Factive_iterator_test_cfg.yaml"`
