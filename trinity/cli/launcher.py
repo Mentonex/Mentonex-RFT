@@ -148,7 +148,7 @@ def activate_data_module(data_workflow_url: str, config_path: str):
         return
 
 
-def run(config_path: str):
+def run(config_path: str, dlc: bool = False):
     config = load_config(config_path)
     config.check_and_update()
     # try to activate data module
@@ -157,8 +157,13 @@ def run(config_path: str):
         data_processor_config.dj_config_path or data_processor_config.dj_process_desc
     ):
         activate_data_module(data_processor_config.data_workflow_url, config_path)
-    if not ray.is_initialized():
-        ray.init(namespace=f"{config.monitor.project}-{config.monitor.name}")
+    ray_namespace = f"{config.monitor.project}-{config.monitor.name}"
+    if dlc:
+        from trinity.utils.dlc_utils import setup_ray_cluster
+
+        setup_ray_cluster(namespace=ray_namespace)
+    else:
+        ray.init(namespace=ray_namespace, ignore_reinit_error=True)
     if config.mode == "explore":
         explore(config)
     elif config.mode == "train":
@@ -191,18 +196,23 @@ def main() -> None:
 
     # run command
     run_parser = subparsers.add_parser("run", help="Run RFT process.")
-    run_parser.add_argument("--config", type=str, required=True, help="config file path.")
+    run_parser.add_argument("--config", type=str, required=True, help="Path to the config file.")
+    run_parser.add_argument(
+        "--dlc", action="store_true", help="Specify when running in Aliyun PAI DLC."
+    )
 
     # studio command
     studio_parser = subparsers.add_parser("studio", help="Run studio.")
-    studio_parser.add_argument("--port", type=int, default=8501, help="studio port.")
+    studio_parser.add_argument(
+        "--port", type=int, default=8501, help="The port for Trinity-Studio."
+    )
 
     # TODO: add more commands like `monitor`, `label`
 
     args = parser.parse_args()
     if args.command == "run":
         # TODO: support parse all args from command line
-        run(args.config)
+        run(args.config, args.dlc)
     elif args.command == "studio":
         studio(args.port)
 
