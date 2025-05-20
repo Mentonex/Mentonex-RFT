@@ -47,6 +47,7 @@ class vLLMAysncRolloutModel(InferenceModel):
         self.use_v1 = config.explorer.use_v1
         if config.explorer.tensor_parallel_size != 1:
             os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+            os.environ["VLLM_RAY_BUNDLE_INDICES"] = config.explorer.bundle_indices
         if not vllm.envs.is_set("VLLM_USE_V1"):
             self.logger.info(f"Using vLLM v{int(config.explorer.use_v1)} engine")
             os.environ["VLLM_USE_V1"] = str(int(config.explorer.use_v1))
@@ -55,15 +56,15 @@ class vLLMAysncRolloutModel(InferenceModel):
             os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
             os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
         self.default_sampling_params = vllm.SamplingParams(
-            n=config.explorer.repeat_times,
-            temperature=config.explorer.temperature,
+            n=1,
+            temperature=0.0,
             max_tokens=config.model.max_response_tokens,
             min_tokens=1,
             truncate_prompt_tokens=config.model.max_prompt_tokens,
             skip_special_tokens=True,
             include_stop_str_in_output=False,
             output_kind=RequestOutputKind.FINAL_ONLY,
-            logprobs=config.explorer.logprobs,
+            logprobs=0,
         )
         self.enable_thinking = config.model.enable_thinking
         self.request_id = 0
