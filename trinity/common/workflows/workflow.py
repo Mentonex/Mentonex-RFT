@@ -77,6 +77,14 @@ class Workflow(ABC):
         self.model = model
         self.auxiliary_models = auxiliary_models
 
+    @property
+    def resettable(self):
+        return False
+
+    def reset(self, task: Task):
+        """Reset the workflow."""
+        raise NotImplementedError
+
     @abstractmethod
     def run(self) -> List[Experience]:
         """Run workflow and return a list of experiences."""
@@ -147,6 +155,13 @@ class SimpleWorkflow(Workflow):
             model=model,
             task=task,
         )
+        self.reset(task)
+
+    @property
+    def resettable(self):
+        return True
+
+    def reset(self, task: Task):
         self.format_args = task.format_args
         self.system_prompt = task.format_args.system_prompt
         self.reply_prefix = task.format_args.reply_prefix
