@@ -32,7 +32,7 @@ actor_rollout_ref:
     grad_clip: 1.0
     clip_ratio: 0.2
     entropy_coeff: 0.001
-    use_kl_loss: True # NOTE
+    use_kl_loss: True
     kl_loss_coef: 0.1 # NOTE: beta for DPO
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1

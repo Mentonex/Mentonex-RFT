@@ -73,7 +73,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         global_config: Config,
     ):
         train_config = global_config.trainer
-        pprint(train_config.trainer_config)
         config = OmegaConf.structured(train_config.trainer_config)
         # download the checkpoint from hdfs
         local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
@@ -305,7 +304,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         if self.sft_warmup_step_num == self.config.trainer.sft_warmup_steps:
             self.logger.log(
                 data={"sft_warmup_steps": self.sft_warmup_step_num},
-                step=self.global_steps,
+                step=self.global_steps - 1,
             )
             with _timer("save_checkpoint", timing_raw):
                 self._save_checkpoint()

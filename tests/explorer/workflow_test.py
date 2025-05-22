@@ -113,6 +113,7 @@ class WorkflowTest(unittest.TestCase):
             MockResponse("<think> balabalabala 99 </think>\n<answer> 36 </answer>"),
             MockResponse("<answer> 36.0 </answer>"),
             MockResponse("<answer>Kim's total points are 6 + 30 = 36 </answer>"),
+            MockResponse("<think> balalaba </think><answer> 35.00 </answer>"),
         ]
         taskset_config = get_unittest_dataset_config("countdown")
         task = Task(
@@ -131,3 +132,21 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(experiences[0].reward, 1.1)
         self.assertEqual(experiences[1].reward, 0.9)
         self.assertEqual(experiences[2].reward, 0.9)
+        self.assertEqual(experiences[3].reward, 0.1)
+        task_new = Task(
+            workflow=MathWorkflow,
+            format_args=taskset_config.format,
+            rollout_args=taskset_config.rollout_args,
+            is_eval=False,
+            raw_task={
+                taskset_config.format.prompt_key: "",
+                taskset_config.format.response_key: r"35",
+            },
+        )
+        workflow.reset(task_new)
+        workflow_new = task_new.to_workflow(model=model)
+        experiences = workflow_new.run()
+        self.assertEqual(experiences[0].reward, 0.1)
+        self.assertEqual(experiences[1].reward, -0.1)
+        self.assertEqual(experiences[2].reward, -0.1)
+        self.assertEqual(experiences[3].reward, 1.1)

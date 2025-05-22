@@ -1,12 +1,13 @@
 """Monitor"""
 import os
-from typing import Any, List, Optional, Union
+from typing import List, Optional, Union
 
 import numpy as np
 import pandas as pd
 import wandb
 from torch.utils.tensorboard import SummaryWriter
 
+from trinity.common.config import Config
 from trinity.common.constants import MonitorType
 from trinity.utils.log import get_logger
 
@@ -19,7 +20,7 @@ class Monitor:
         project: str,
         name: str,
         role: str,
-        config: Any = None,
+        config: Config = None,  # pass the global Config for recording
     ) -> None:
         if config.monitor.monitor_type == MonitorType.WANDB:
             self.logger = WandbLogger(project, name, role, config)
@@ -59,8 +60,8 @@ class Monitor:
 
 
 class TensorboardLogger:
-    def __init__(self, project: str, name: str, role: str, config: Any = None) -> None:
-        self.tensorboard_dir = os.path.join(config.monitor.job_dir, "tensorboard")
+    def __init__(self, project: str, name: str, role: str, config: Config = None) -> None:
+        self.tensorboard_dir = os.path.join(config.monitor.cache_dir, "tensorboard")
         os.makedirs(self.tensorboard_dir, exist_ok=True)
         self.logger = SummaryWriter(self.tensorboard_dir)
         self.console_logger = get_logger(__name__)
@@ -81,7 +82,7 @@ class TensorboardLogger:
 
 
 class WandbLogger:
-    def __init__(self, project: str, name: str, role: str, config: Any = None) -> None:
+    def __init__(self, project: str, name: str, role: str, config: Config = None) -> None:
         self.logger = wandb.init(
             project=project,
             group=name,

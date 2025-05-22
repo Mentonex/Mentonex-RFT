@@ -43,7 +43,7 @@ class RunnerPool:
         self._pending_submits = []
 
         # create new actors
-        self.engine_status = [0] * config.explorer.engine_num
+        self.engine_status = [0] * config.explorer.rollout_model.engine_num
         self._idle_actors = list()
         self.actor_to_engine_index = {}
         self._create_actors(config.explorer.runner_num)
@@ -202,7 +202,10 @@ class RunnerPool:
             # TODO: balance the model
             self._return_actor(
                 WorkflowRunner.remote(
-                    self.config, self.models[random.randint(0, self.config.explorer.engine_num - 1)]
+                    self.config,
+                    self.models[
+                        random.randint(0, self.config.explorer.rollout_model.engine_num - 1)
+                    ],
                 )
             )
             return_status = Status(

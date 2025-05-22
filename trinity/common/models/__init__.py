@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import List, Tuple
 
-from trinity.common.config import Config, InferenceModelConfig
+from trinity.common.config import Config
 from trinity.common.models.model import InferenceModel
 from trinity.utils.log import get_logger
 
@@ -46,27 +46,34 @@ def create_inference_models(
     from trinity.common.models.vllm_async_model import vLLMAysncRolloutModel
     from trinity.common.models.vllm_model import vLLMRolloutModel
 
-    engine_num = config.explorer.engine_num
-    tensor_parallel_size = config.explorer.tensor_parallel_size
-    is_multi_process = config.explorer.tensor_parallel_size > 1
+    engine_num = config.explorer.rollout_model.engine_num
+    tensor_parallel_size = config.explorer.rollout_model.tensor_parallel_size
 
-    if config.explorer.enable_openai_api and config.explorer.engine_type != "vllm_async":
+    if (
+        config.explorer.rollout_model.enable_openai_api
+        and config.explorer.rollout_model.engine_type != "vllm_async"
+    ):
         raise ValueError("OpenAI API is only supported for vllm_async engine")
 
     rollout_engines = []
 
-    if config.explorer.engine_type == "vllm":
+    if config.explorer.rollout_model.engine_type == "vllm":
         engine_cls = vLLMRolloutModel
-    elif config.explorer.engine_type == "vllm_async":
+    elif config.explorer.rollout_model.engine_type == "vllm_async":
         engine_cls = vLLMAysncRolloutModel
     else:
-        raise ValueError(f"Unknown engine type: {config.explorer.engine_type}")
+        raise ValueError(f"Unknown engine type: {config.explorer.rollout_model.engine_type}")
 
     main_bundles = [{"GPU": 1, "CPU": 1} for _ in range(engine_num * tensor_parallel_size)]
     auxiliary_bundles = [
         {"GPU": 1, "CPU": 1}
         for _ in range(
-            sum([model.tensor_parallel_size for model in config.explorer.auxiliary_models])
+            sum(
+                [
+                    model.engine_num * model.tensor_parallel_size
+                    for model in config.explorer.auxiliary_models
+                ]
+            )
         )
     ]
     pg = placement_group(main_bundles + auxiliary_bundles, strategy="PACK")
@@ -84,57 +91,47 @@ def create_inference_models(
     allocator = _BundleAllocator(node_bundle_map)
 
     # create rollout models
-    for _ in range(config.explorer.engine_num):
-        bundles_for_engine = allocator.allocate(config.explorer.tensor_parallel_size)
-        model_config = InferenceModelConfig(
-            model_path=config.model.model_path,
-            tensor_parallel_size=config.explorer.tensor_parallel_size,
-            use_v1=config.explorer.use_v1,
-            max_prompt_tokens=config.model.max_prompt_tokens,
-            max_response_tokens=config.model.max_response_tokens,
-            enforce_eager=config.explorer.enforce_eager,
-            enable_prefix_caching=config.explorer.enable_prefix_caching,
-            enable_chunked_prefill=config.explorer.enable_chunked_prefill,
-            enable_thinking=config.model.enable_thinking,
-            gpu_memory_utilization=config.explorer.gpu_memory_utilization,
-            dtype=config.explorer.dtype,
-            seed=config.explorer.seed,
-            chat_template=config.explorer.chat_template,
-            bundle_indices=",".join([str(bid) for bid in bundles_for_engine]),
+    for _ in range(config.explorer.rollout_model.engine_num):
+        bundles_for_engine = allocator.allocate(config.explorer.rollout_model.tensor_parallel_size)
+        config.explorer.rollout_model.bundle_indices = ",".join(
+            [str(bid) for bid in bundles_for_engine]
         )
         rollout_engines.append(
             ray.remote(engine_cls)
             .options(
                 num_cpus=0,
-                num_gpus=0 if is_multi_process else 1,
+                num_gpus=0 if config.explorer.rollout_model.tensor_parallel_size > 1 else 1,
                 scheduling_strategy=PlacementGroupSchedulingStrategy(
                     placement_group=pg,
                     placement_group_bundle_index=bundles_for_engine[0],
                 ),
             )
             .remote(
-                config=model_config,
+                config=config.explorer.rollout_model,
             )
         )
-    if config.explorer.enable_openai_api:
+    if config.explorer.rollout_model.enable_openai_api:
         for engine in rollout_engines:
             engine.run_api_server.remote()
 
     # create auxiliary models
     for model_config in config.explorer.auxiliary_models:
-        bundles_for_engine = allocator.allocate(model_config.tensor_parallel_size)
-        auxiliary_engines.append(
-            ray.remote(vLLMAysncRolloutModel)
-            .options(
-                num_cpus=0,
-                num_gpus=0 if is_multi_process else 1,
-                scheduling_strategy=PlacementGroupSchedulingStrategy(
-                    placement_group=pg,
-                    placement_group_bundle_index=bundles_for_engine[0],
-                ),
+        for _ in range(model_config.engine_num):
+            bundles_for_engine = allocator.allocate(model_config.tensor_parallel_size)
+            model_config.enable_openai_api = True
+            model_config.engine_type = "vllm_async"
+            auxiliary_engines.append(
+                ray.remote(vLLMAysncRolloutModel)
+                .options(
+                    num_cpus=0,
+                    num_gpus=0 if model_config.tensor_parallel_size > 1 else 1,
+                    scheduling_strategy=PlacementGroupSchedulingStrategy(
+                        placement_group=pg,
+                        placement_group_bundle_index=bundles_for_engine[0],
+                    ),
+                )
+                .remote(config=model_config)
             )
-            .remote(config=model_config)
-        )
     # all auxiliary engines run api server
     for engine in auxiliary_engines:
         engine.run_api_server.remote()

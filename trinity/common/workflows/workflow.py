@@ -51,11 +51,13 @@ class Task:
             auxiliary_models=auxiliary_models,
         )
 
+    # Deprecated property, will be removed in the future
     @property
     def task_desc(self) -> Union[str, None]:
         prompt_key = self.format_args.prompt_key
         return self.raw_task[prompt_key] if prompt_key in self.raw_task else None  # type: ignore
 
+    # Deprecated property, will be removed in the future
     @property
     def truth(self) -> Union[str, None]:
         response_key = self.format_args.response_key
@@ -154,6 +156,7 @@ class SimpleWorkflow(Workflow):
         super().__init__(
             model=model,
             task=task,
+            auxiliary_models=auxiliary_models,
         )
         self.reset(task)
 
@@ -177,7 +180,6 @@ class SimpleWorkflow(Workflow):
             raise ValueError("`reward_fn` must be a subclass of `RewardFn`")
         # Rollout args
         rollout_args = asdict(task.rollout_args)
-        rollout_args["n"] = rollout_args["repeat_times"]
         self.rollout_args = rollout_args
         self.is_eval = task.is_eval
 
@@ -231,7 +233,15 @@ class MathWorkflow(SimpleWorkflow):
 <think> reasoning process here </think>
 <answer> answer here </answer>.
 """
-        super().__init__(
-            model=model,
-            task=task,
-        )
+        super().__init__(model=model, task=task, auxiliary_models=auxiliary_models)
+
+    def reset(self, task: Task):
+        if task.reward_fn is None:
+            task.reward_fn = MathRewardFn
+        if task.reward_fn == MathRewardFn and task.format_args.system_prompt is None:
+            task.format_args.system_prompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e.,
+<think> reasoning process here </think>
+<answer> answer here </answer>.
+"""
+        # call the SimpleWorkflow.reset
+        super().reset(task)

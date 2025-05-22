@@ -1,16 +1,19 @@
-global_config:
-  total_epochs: 1
-  batch_size: 96
+project: "Trinity-RFT-gsm8k-test-opmd"
+name: "opmd_test"
+checkpoint_root_dir: /PATH/TO/CHECKPOINT/
+algorithm:
   algorithm_type: opmd
+  repeat_times: 8
 model:
-  model_path: '{path to models}/Qwen2.5-1.5B-Inst'
-  max_prompt_tokens: 256
-  max_response_tokens: 1024
-  checkpoint_path: '{path to checkpoints}/test-opmd-gsm8k/qwen2.5-1.5B-gsm8k-opmd-kl_0.001-entropy_0-tau_4-beta1_0.0-beta2_0.95-lr_2e-6-sync10'
+  model_path: /PATH/TO/MODEL/
+  max_prompt_tokens: 4096
+  max_response_tokens: 16384
 cluster:
   node_num: 1
   gpu_per_node: 8
 buffer:
+  total_epochs: 1
+  batch_size: 96
   max_retry_times: 3
   max_retry_interval: 1
   explorer_input:
@@ -22,7 +25,7 @@ buffer:
         prompt_key: 'question'
         response_key: 'answer'
       rollout_args:
-        repeat_times: 8
+        n: 8
         temperature: 1.0
         logprobs: 0
     default_workflow_type: 'math_workflow'
@@ -32,18 +35,15 @@ buffer:
       storage_type: queue
       path: 'sqlite:///gsm8k_opmd.db'
 explorer:
-  engine_type: vllm_async
-  engine_num: 2
   runner_num: 32
-  tensor_parallel_size: 1
-  enable_prefix_caching: false
-  enforce_eager: true
-  dtype: bfloat16
-  seed: 42
-  use_ray: false
-  backend: 'nccl'
-  max_pending_requests: 32
-  max_waiting_steps: 4
+  rollout_model:
+    engine_type: vllm_async
+    engine_num: 2
+    tensor_parallel_size: 1
+    enable_prefix_caching: false
+    enforce_eager: true
+    dtype: bfloat16
+    seed: 42
 synchronizer:
   sync_method: 'nccl'
   sync_interval: 10
@@ -51,9 +51,4 @@ synchronizer:
 trainer:
   trainer_type: 'verl'
   trainer_config_path: 'examples/opmd_gsm8k/train_opmd_gsm8k.yaml'
-  sft_warmup_steps: 0
   save_interval: 100
-monitor:
-  cache_root_dir: ""
-  project: "Trinity-RFT-gsm8k-test-opmd"
-  name: "qwen2.5-1.5B-gsm8k-opmd-kl_0.001-entropy_0-tau_4-beta1_0.0-beta2_0.95-lr_2e-6-sync10"

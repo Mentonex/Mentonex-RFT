@@ -22,20 +22,19 @@ class BaseTrainerCase(RayUnittestBase):
     def setUp(self):
         ray.init(ignore_reinit_error=True)
         self.config = get_template_config()
-        self.config.global_config.total_epochs = 2
-        self.config.global_config.batch_size = 4
+        self.config.buffer.total_epochs = 2
+        self.config.buffer.batch_size = 4
         self.config.model.model_path = get_model_path()
-        self.config.explorer.engine_type = "vllm_async"
-        self.config.buffer.explorer_input.taskset.rollout_args.repeat_times = 3
-        self.config.explorer.use_v1 = False
-        self.config.monitor.name = f"trainer-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        self.config.explorer.rollout_model.engine_type = "vllm_async"
+        self.config.algorithm.repeat_times = 3
+        self.config.explorer.rollout_model.use_v1 = False
+        self.config.project = "Trainer-unittest"
+        self.config.name = f"trainer-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         self.config.monitor.monitor_type = MonitorType.TENSORBOARD
-        self.config.model.checkpoint_path = os.path.join(
-            get_checkpoint_path(), f"trainer-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        )
+        self.config.checkpoint_root_dir = get_checkpoint_path()
         self.config.synchronizer.sync_interval = 2
         self.config.synchronizer.sync_method = SyncMethod.NCCL
-        self.config.global_config.eval_interval = 4
+        self.config.explorer.eval_interval = 4
 
     @abstractmethod
     def test_trainer(self):
@@ -58,7 +57,7 @@ class TestTrainerCountdown(BaseTrainerCase):
         self.config.trainer.trainer_config.trainer.max_actor_ckpt_to_keep = 2
         self.config.trainer.trainer_config.trainer.max_critic_ckpt_to_keep = 2
         both(self.config)
-        parser = TensorBoardParser(os.path.join(self.config.monitor.job_dir, "tensorboard"))
+        parser = TensorBoardParser(os.path.join(self.config.monitor.cache_dir, "tensorboard"))
         rollout_metrics = parser.metric_list("rollout")
         self.assertTrue(len(rollout_metrics) > 0)
         self.assertEqual(parser.metric_max_step(rollout_metrics[0]), 8)
@@ -76,12 +75,12 @@ class TestTrainerCountdown(BaseTrainerCase):
         from trinity.common.models.utils import get_checkpoint_dir_with_step_num
 
         checkpoint_step_4 = get_checkpoint_dir_with_step_num(
-            checkpoint_root_path=self.config.model.checkpoint_path,
+            checkpoint_root_path=self.config.checkpoint_job_dir,
             trainer_type=self.config.trainer.trainer_type,
             step_num=4,
         )
         checkpoint_step_8 = get_checkpoint_dir_with_step_num(
-            checkpoint_root_path=self.config.model.checkpoint_path,
+            checkpoint_root_path=self.config.checkpoint_job_dir,
             trainer_type=self.config.trainer.trainer_type,
             step_num=8,
         )
@@ -92,10 +91,10 @@ class TestTrainerCountdown(BaseTrainerCase):
         # test bench mode
         self.config.mode = "bench"
         self.config.synchronizer.sync_method = SyncMethod.CHECKPOINT
-        self.config.global_config.eval_on_latest_ckp = False
+        self.config.explorer.eval_on_latest_checkpoint = False
         self.config.check_and_update()
         bench(self.config)
-        parser = TensorBoardParser(os.path.join(self.config.monitor.job_dir, "tensorboard"))
+        parser = TensorBoardParser(os.path.join(self.config.monitor.cache_dir, "tensorboard"))
         countdown_metrics = parser.metric_list("eval/countdown")
         copy_countdown_metrics = parser.metric_list("eval/copy_countdown")
         self.assertTrue(len(countdown_metrics) > 0)
@@ -109,4 +108,4 @@ class TestTrainerCountdown(BaseTrainerCase):
 
     def tearDown(self):
         # remove dir only when the test passed
-        shutil.rmtree(self.config.model.checkpoint_path)
+        shutil.rmtree(self.config.checkpoint_job_dir)

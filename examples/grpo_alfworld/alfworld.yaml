@@ -1,16 +1,19 @@
-global_config:
-  total_epochs: 20
-  batch_size: 4
+project: "ALFWORLD"
+name: "ALFWORLD_RFT"
+checkpoint_root_dir: /PATH/TO/CHECKPOINT/ALFWORLD_RFT/
+algorithm:
   algorithm_type: grpo
+  repeat_times: 8
 model:
-  model_path: '/PATH/TO/MODEL/CHECKPOINT/'
+  model_path: /PATH/TO/MODEL/
   max_prompt_tokens: 4096
   max_response_tokens: 16384
-  checkpoint_path: 'checkpoints/ALFWORLD_RFT'
 cluster:
   node_num: 1
   gpu_per_node: 8
 buffer:
+  total_epochs: 20
+  batch_size: 4
   max_retry_times: 3
   max_retry_interval: 1
   explorer_input:
@@ -21,7 +24,6 @@ buffer:
       format:
         prompt_key: 'game_file'
       rollout_args:
-        repeat_times: 8
         temperature: 1.0
         logprobs: 0
     default_workflow_type: 'alfworld_workflow'
@@ -31,20 +33,17 @@ buffer:
       storage_type: queue
       path: 'sqlite:///alfworld.db'
 explorer:
-  engine_type: vllm_async
-  engine_num: 2
   runner_num: 32
-  tensor_parallel_size: 2
-  enable_prefix_caching: false
-  enforce_eager: true
-  dtype: bfloat16
-  seed: 42
-  use_ray: false
-  backend: 'nccl'
-  max_pending_requests: 32
-  max_waiting_steps: 4
-  gpu_memory_utilization: 0.7
-  enable_chunked_prefill: true
+  rollout_model:
+    engine_type: vllm_async
+    engine_num: 2
+    tensor_parallel_size: 2
+    enable_prefix_caching: false
+    enforce_eager: true
+    dtype: bfloat16
+    seed: 42
+    gpu_memory_utilization: 0.7
+    enable_chunked_prefill: true
 synchronizer:
   sync_method: 'nccl'
   sync_interval: 8
@@ -53,7 +52,3 @@ trainer:
   trainer_type: 'verl'
   trainer_config_path: 'examples/grpo_alfworld/train_alfworld.yaml'
   save_interval: 10
-monitor:
-  cache_root_dir: ""
-  project: "ALFWORLD"
-  name: "ALFWORLD_RFT"

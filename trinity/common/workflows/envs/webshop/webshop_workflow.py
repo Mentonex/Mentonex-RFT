@@ -215,10 +215,10 @@ class WebShopWorkflow(MultiTurnWorkflow):
 
     def reset(self, task: Task):
         self.task_desc = task.task_desc or "0"
-        self.repeat_times = task.rollout_args.repeat_times
+        self.repeat_times = task.rollout_args.n
 
     def get_model_response(self, messages):
-        responses = self.model.chat(messages, repeat_times=1)
+        responses = self.model.chat(messages, n=1)
         return responses
 
     def get_model_response_text(self, messages):

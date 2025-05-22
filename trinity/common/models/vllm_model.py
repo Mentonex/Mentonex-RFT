@@ -51,6 +51,9 @@ class vLLMRolloutModel(InferenceModel):
             include_stop_str_in_output=False,
             logprobs=0,
         )
+        max_model_len = None
+        if config.max_prompt_tokens is not None and config.max_response_tokens is not None:
+            max_model_len = config.max_prompt_tokens + config.max_response_tokens
         self.llm = LLM(
             # TODO: check checkpoint path
             model=config.model_path,
@@ -59,7 +62,7 @@ class vLLMRolloutModel(InferenceModel):
             tensor_parallel_size=config.tensor_parallel_size,
             seed=config.seed,
             distributed_executor_backend=("uni" if config.tensor_parallel_size == 1 else "ray"),
-            max_model_len=config.max_prompt_tokens + config.max_response_tokens,
+            max_model_len=max_model_len,
             enable_prefix_caching=config.enable_prefix_caching,
             dtype=config.dtype,
             trust_remote_code=True,
@@ -149,7 +152,7 @@ class vLLMRolloutModel(InferenceModel):
 
         Example:
 
-            >>> # config.buffer.explorer_input.taskset.rollout_args.repeat_times == 2 or kwargs["repeat_times"] == 2
+            >>> # config.algorithm.repeat_times == 2 or kwargs["n"] == 2
             >>>
             >>> prompts = [
             >>>     "Hello, world!",

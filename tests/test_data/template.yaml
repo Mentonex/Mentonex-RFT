@@ -1,13 +1,8 @@
-global_config:
-  batch_size: 32
-model:
-  max_prompt_tokens: 2048
-  max_response_tokens: 2048
-  checkpoint_path: ''
 cluster:
   node_num: 1
   gpu_per_node: 8
 buffer:
+  batch_size: 32
   max_retry_times: 3
   max_retry_interval: 1
   explorer_input:
@@ -18,11 +13,12 @@ buffer:
     default_workflow_type: ''
     default_reward_fn_type: ''
 explorer:
-  engine_type: vllm
-  engine_num: 2
   runner_num: 8
-  tensor_parallel_size: 2
-  enable_prefix_caching: false
-  enforce_eager: true
-  dtype: bfloat16
-  seed: 42
+  rollout_model:
+    engine_type: vllm
+    engine_num: 2
+    tensor_parallel_size: 2
+    enable_prefix_caching: false
+    enforce_eager: true
+    dtype: bfloat16
+    seed: 42

@@ -1,6 +1,9 @@
 """Launch the trainer"""
 import argparse
+import os
 import sys
+from pathlib import Path
+from pprint import pprint
 
 import ray
 
@@ -46,17 +49,18 @@ def train(config: Config) -> None:
     trainer = Trainer.remote(config)
     ray.get(trainer.prepare.remote())
 
-    if config.trainer.sft_warmup_steps > 0:
+    if config.buffer.trainer_input.sft_warmup_steps > 0:
         while True:
             train_continue, train_step_num = ray.get(
                 trainer.train_one_period.remote(AlgorithmType.SFT)
             )
-            logger.info(f"SFT warmup step {train_step_num} finished.")
+            if train_step_num <= config.buffer.trainer_input.sft_warmup_steps:
+                logger.info(f"SFT warmup step {train_step_num} finished.")
             if not train_continue:
                 logger.info("SFT warmup finished.")
                 break
 
-    algo_type = config.global_config.algorithm_type
+    algo_type = config.algorithm.algorithm_type
     try:
         ray.get(trainer.train.remote(algo_type))
         logger.info("Train finished.")
@@ -89,18 +93,19 @@ def both(config: Config) -> None:
     # sync weight before training start
     ray.get([explorer.sync_weight.remote(), trainer.sync_weight.remote()])
 
-    if config.trainer.sft_warmup_steps > 0:
+    if config.buffer.trainer_input.sft_warmup_steps > 0:
         while True:
             train_continue, train_step_num = ray.get(
                 trainer.train_one_period.remote(AlgorithmType.SFT)
             )
-            logger.info(f"SFT warmup step {train_step_num} finished.")
+            if train_step_num <= config.buffer.trainer_input.sft_warmup_steps:
+                logger.info(f"SFT warmup step {train_step_num} finished.")
             if not train_continue:
                 logger.info("SFT warmup finished.")
                 break
         ray.get([explorer.sync_weight.remote(), trainer.sync_weight.remote()])
 
-    algo_type = config.global_config.algorithm_type
+    algo_type = config.algorithm.algorithm_type
     while True:
         try:
             ref_explore = explorer.explore_one_period.remote()
@@ -123,7 +128,7 @@ def both(config: Config) -> None:
             logger.error(e)
             logger.error("Training stopped due to exception.")
             raise e
-        if explore_step_num % config.global_config.eval_interval == 0:
+        if explore_step_num % config.explorer.eval_interval == 0:
             try:
                 ray.get(explorer.eval.remote())
                 logger.info("Evaluation finished.")
@@ -155,18 +160,23 @@ def activate_data_module(data_workflow_url: str, config_path: str):
 def run(config_path: str, dlc: bool = False):
     config = load_config(config_path)
     config.check_and_update()
+    pprint(config)
     # try to activate data module
     data_processor_config = config.data_processor
     if data_processor_config.data_workflow_url and (
         data_processor_config.dj_config_path or data_processor_config.dj_process_desc
     ):
         activate_data_module(data_processor_config.data_workflow_url, config_path)
-    ray_namespace = f"{config.monitor.project}-{config.monitor.name}"
+    ray_namespace = f"{config.project}-{config.name}"
     if dlc:
         from trinity.utils.dlc_utils import setup_ray_cluster
 
         setup_ray_cluster(namespace=ray_namespace)
     else:
+        from trinity.utils.dlc_utils import is_running
+
+        if not is_running:
+            raise RuntimeError("Ray is not running, please start it by `ray start --head`.")
         ray.init(namespace=ray_namespace, ignore_reinit_error=True)
     if config.mode == "explore":
         explore(config)
@@ -181,10 +191,13 @@ def run(config_path: str, dlc: bool = False):
 def studio(port: int = 8501):
     from streamlit.web import cli as stcli
 
+    current_dir = Path(__file__).resolve().parent.parent
+    config_manager_path = os.path.join(current_dir, "manager", "config_manager.py")
+
     sys.argv = [
         "streamlit",
         "run",
-        "trinity/manager/config_manager.py",
+        config_manager_path,
         "--server.port",
         str(port),
         "--server.fileWatcherType",

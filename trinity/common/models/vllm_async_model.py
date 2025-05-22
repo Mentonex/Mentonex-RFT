@@ -64,6 +64,9 @@ class vLLMAysncRolloutModel(InferenceModel):
         )
         self.enable_thinking = config.enable_thinking
         self.request_id = 0
+        max_model_len = None
+        if config.max_prompt_tokens is not None and config.max_response_tokens is not None:
+            max_model_len = config.max_prompt_tokens + config.max_response_tokens
         engine_args = vllm.AsyncEngineArgs(
             model=config.model_path,
             enforce_eager=config.enforce_eager,
@@ -71,7 +74,7 @@ class vLLMAysncRolloutModel(InferenceModel):
             tensor_parallel_size=config.tensor_parallel_size,
             seed=config.seed,
             distributed_executor_backend=("uni" if config.tensor_parallel_size == 1 else "ray"),
-            max_model_len=config.max_prompt_tokens + config.max_response_tokens,
+            max_model_len=max_model_len,
             enable_prefix_caching=config.enable_prefix_caching,
             dtype=config.dtype,
             trust_remote_code=True,
@@ -314,7 +317,7 @@ class vLLMAysncRolloutModel(InferenceModel):
         )
 
     async def has_api_server(self) -> bool:
-        return self.api_server_host is not None and self.api_server_port is not None
+        return self.config.enable_openai_api
 
     async def api_server_ready(self) -> Optional[str]:
         """Check if the OpenAI API server is ready.

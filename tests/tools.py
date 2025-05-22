@@ -52,7 +52,7 @@ def get_unittest_dataset_config(
                 response_key="answer",
             ),
             rollout_args=GenerationConfig(
-                repeat_times=1,
+                n=1,
                 temperature=1.0,
                 logprobs=0,
             ),

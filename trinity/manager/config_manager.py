@@ -117,12 +117,8 @@ class ConfigManager:
             "top_k": -1,
             "seed": 42,
             "logprobs": 0,
-            "backend": "nccl",
-            "use_ray": False,
             "gpu_memory_utilization": 0.9,
             "enable_chunked_prefill": False,
-            "max_pending_requests": 32,
-            "max_waiting_steps": 4,
             "max_timeout": 900,
             "explorer_max_retry_times": 2,
             # Synchronizer Configs
@@ -176,7 +172,7 @@ class ConfigManager:
             "actor_use_uid": False,
             "actor_grad_clip": 1.0,
             "actor_clip_ratio": 0.2,
-            "actor_entropy_coeff": 0.001,
+            "actor_entropy_coef": 0.001,
             "_not_dpo_actor_use_kl_loss": True,
             "actor_use_kl_loss": True,
             "actor_kl_loss_coef": 0.001,
@@ -624,33 +620,6 @@ if node_num > 1:
                     "Please ensure that `engine_num * tensor_parallel_size` can be divided by `gpu_per_node` when `node_num > 1`."
                 )
 
-    def _set_repeat_times(self):  # TODO
-        grouped_adv_algorithms = [
-            AlgorithmType.GRPO.value,
-            AlgorithmType.OPMD.value,  # TODO: may add rloo
-        ]
-        if st.session_state["algorithm_type"] in grouped_adv_algorithms:
-            min_repeat_times = 2
-            st.session_state["repeat_times"] = st.session_state["_grouped_adv_repeat_times"]
-        else:
-            min_repeat_times = 1
-            st.session_state["repeat_times"] = st.session_state["_not_grouped_adv_repeat_times"]
-
-        def on_change():
-            if st.session_state["algorithm_type"] in grouped_adv_algorithms:
-                st.session_state["_grouped_adv_repeat_times"] = st.session_state["repeat_times"]
-            else:
-                st.session_state["_not_grouped_adv_repeat_times"] = st.session_state["repeat_times"]
-
-        st.number_input(
-            "Repeat Times",
-            key="repeat_times",
-            min_value=min_repeat_times,
-            help="`repeat_times` is used to set how many experiences each task can generate, "
-            "and it must be greater than `1` when `algorithm_type` is `opmd` or `grpo`.",
-            on_change=on_change,
-        )
-
     def _set_sync_method(self):
         if st.session_state["algorithm_type"] == AlgorithmType.DPO.value:
             st.session_state["sync_method"] = SyncMethod.CHECKPOINT.value
@@ -693,17 +662,8 @@ if node_num > 1:
     def _set_runner_num(self):
         st.number_input("Runner Num", key="runner_num", min_value=1)
 
-    def _set_max_pending_requests(self):
-        st.number_input("Max Pending Requests", key="max_pending_requests", min_value=1)
-
-    def _set_max_waiting_steps(self):
-        st.number_input("Max Waiting Steps", key="max_waiting_steps", min_value=1)
-
     def _set_dtype(self):
         st.selectbox("Dtype", ["float16", "bfloat16", "float32"], key="dtype")
-
-    def _set_backend(self):
-        st.selectbox("Backend", ["nccl"], key="backend")
 
     def _set_temperature(self):
         st.number_input("Temperature", key="temperature", min_value=0.0, max_value=2.0)
@@ -731,9 +691,6 @@ if node_num > 1:
 
     def _set_enforce_eager(self):
         st.checkbox("Enforce Eager", key="enforce_eager")
-
-    def _set_use_ray(self):
-        st.checkbox("Use Ray", key="use_ray")
 
     def _set_gpu_memory_utilization(self):
         st.number_input(
@@ -829,6 +786,33 @@ if node_num > 1:
 
     def _set_ppo_epochs(self):
         st.number_input("PPO Epochs", key="ppo_epochs", min_value=1)
+
+    def _set_repeat_times(self):  # TODO
+        grouped_adv_algorithms = [
+            AlgorithmType.GRPO.value,
+            AlgorithmType.OPMD.value,  # TODO: may add rloo
+        ]
+        if st.session_state["algorithm_type"] in grouped_adv_algorithms:
+            min_repeat_times = 2
+            st.session_state["repeat_times"] = st.session_state["_grouped_adv_repeat_times"]
+        else:
+            min_repeat_times = 1
+            st.session_state["repeat_times"] = st.session_state["_not_grouped_adv_repeat_times"]
+
+        def on_change():
+            if st.session_state["algorithm_type"] in grouped_adv_algorithms:
+                st.session_state["_grouped_adv_repeat_times"] = st.session_state["repeat_times"]
+            else:
+                st.session_state["_not_grouped_adv_repeat_times"] = st.session_state["repeat_times"]
+
+        st.number_input(
+            "Repeat Times",
+            key="repeat_times",
+            min_value=min_repeat_times,
+            help="`repeat_times` is used to set how many experiences each task can generate, "
+            "and it must be greater than `1` when `algorithm_type` is `opmd` or `grpo`.",
+            on_change=on_change,
+        )
 
     def _set_training_strategy(self):
         st.selectbox(
@@ -978,10 +962,10 @@ if node_num > 1:
             max_value=1.0,
         )
 
-    def _set_actor_entropy_coeff(self):
+    def _set_actor_entropy_coef(self):
         st.number_input(
             "Entropy Coeff",
-            key="actor_entropy_coeff",
+            key="actor_entropy_coef",
             min_value=0.0,
             max_value=1.0,
             format="%.1e",
@@ -1241,18 +1225,16 @@ if node_num > 1:
                 ["runner_num", "temperature", "top_p", "top_k", "seed", "logprobs"]
             )
 
-            self._set_configs_with_st_columns(["dtype", "backend", "gpu_memory_utilization"])
+            self._set_configs_with_st_columns(["dtype", "gpu_memory_utilization"])
             self._set_configs_with_st_columns(
                 [
-                    "max_pending_requests",
-                    "max_waiting_steps",
                     "max_timeout",
                     "explorer_max_retry_times",
                 ]
             )
 
             self._set_configs_with_st_columns(
-                ["enable_prefix_caching", "enforce_eager", "use_ray", "enable_chunked_prefill"]
+                ["enable_prefix_caching", "enforce_eager", "enable_chunked_prefill"]
             )
 
     def _expert_trainer_part(self):
@@ -1318,7 +1300,7 @@ if node_num > 1:
             )
 
             self._set_configs_with_st_columns(
-                ["actor_grad_clip", "actor_clip_ratio", "actor_entropy_coeff"]
+                ["actor_grad_clip", "actor_clip_ratio", "actor_entropy_coef"]
             )
 
             self._set_actor_use_kl_loss()
@@ -1423,7 +1405,7 @@ if node_num > 1:
                     "ppo_max_token_len_per_gpu": ppo_max_token_len_per_gpu,
                     "grad_clip": st.session_state["actor_grad_clip"],
                     "clip_ratio": st.session_state["actor_clip_ratio"],
-                    "entropy_coeff": st.session_state["actor_entropy_coeff"],
+                    "entropy_coeff": st.session_state["actor_entropy_coef"],
                     "use_kl_loss": st.session_state["actor_use_kl_loss"],
                     "kl_loss_coef": st.session_state["actor_kl_loss_coef"],
                     "kl_loss_type": st.session_state["actor_kl_loss_type"],
@@ -1640,23 +1622,25 @@ if node_num > 1:
         if st.session_state.config_generated:
             config = {
                 "mode": st.session_state["mode"],
-                "global_config": {
-                    "total_epochs": st.session_state["total_epochs"],
-                    "batch_size": st.session_state["train_batch_size"],
-                    "eval_interval": st.session_state["eval_interval"],
+                "project": st.session_state["project"],
+                "name": st.session_state["name"],
+                "checkpoint_root_dir": st.session_state["checkpoint_path"],
+                "algorithm": {
                     "algorithm_type": st.session_state["algorithm_type"],
+                    "repeat_times": st.session_state["repeat_times"],
                 },
                 "model": {
                     "model_path": st.session_state["model_path"],
                     "max_prompt_tokens": st.session_state["max_prompt_tokens"],
                     "max_response_tokens": st.session_state["max_response_tokens"],
-                    "checkpoint_path": st.session_state["checkpoint_path"],
                 },
                 "cluster": {
                     "node_num": st.session_state["node_num"],
                     "gpu_per_node": st.session_state["gpu_per_node"],
                 },
                 "buffer": {
+                    "total_epochs": st.session_state["total_epochs"],
+                    "batch_size": st.session_state["train_batch_size"],
                     "max_retry_times": st.session_state["buffer_max_retry_times"],
                     "max_retry_interval": st.session_state["max_retry_interval"],
                     "explorer_input": {
@@ -1671,7 +1655,7 @@ if node_num > 1:
                                 "response_key": st.session_state["taskset_response_key"],
                             },
                             "rollout_args": {
-                                "repeat_times": st.session_state["repeat_times"],
+                                "n": st.session_state["repeat_times"],
                                 "temperature": st.session_state["temperature"],
                                 "top_p": st.session_state["top_p"],
                                 "top_k": st.session_state["top_k"],
@@ -1690,9 +1674,11 @@ if node_num > 1:
                             "storage_type": st.session_state["storage_type"],
                             "path": experience_buffer_path,
                         },
+                        "sft_warmup_steps": st.session_state["sft_warmup_steps"],
                     },
                 },
                 "explorer": {
+                    "eval_interval": st.session_state["eval_interval"],
                     "engine_type": st.session_state["engine_type"],
                     "engine_num": st.session_state["engine_num"],
                     "runner_num": st.session_state["runner_num"],
@@ -1702,13 +1688,9 @@ if node_num > 1:
                     "enforce_eager": st.session_state["enforce_eager"],
                     "dtype": st.session_state["dtype"],
                     "seed": st.session_state["seed"],
-                    "backend": st.session_state["backend"],
-                    "use_ray": st.session_state["use_ray"],
                     "gpu_memory_utilization": st.session_state["gpu_memory_utilization"],
                     "enable_chunked_prefill": st.session_state["enable_chunked_prefill"],
                     "use_v1": True,
-                    "max_pending_requests": st.session_state["max_pending_requests"],
-                    "max_waiting_steps": st.session_state["max_waiting_steps"],
                     "max_timeout": st.session_state["max_timeout"],
                     "max_retry_times": st.session_state["explorer_max_retry_times"],
                 },
@@ -1720,12 +1702,9 @@ if node_num > 1:
                 "trainer": {
                     "trainer_type": st.session_state["trainer_type"],
                     "trainer_config": trainer_config,
-                    "sft_warmup_steps": st.session_state["sft_warmup_steps"],
                     "save_interval": st.session_state["save_interval"],
                 },
                 "monitor": {
-                    "project": st.session_state["project"],
-                    "name": st.session_state["exp_name"],
                     "monitor_type": st.session_state["monitor_type"],
                 },
             }

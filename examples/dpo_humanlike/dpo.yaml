@@ -1,17 +1,19 @@
+project: "dpo_example"
+name: "trinity_dpo"
 mode: train
-global_config:
-  total_epochs: 20
-  batch_size: 32 # NOTE
+algorithm:
   algorithm_type: dpo
+checkpoint_root_dir: /PATH/TO/CHECKPOINT
 model:
-  model_path: '/PATH/TO/MODEL/CHECKPOINT/' # NOTE
+  model_path: '/PATH/TO/MODEL'
   max_prompt_tokens: 1792
   max_response_tokens: 256
-  checkpoint_path: 'checkpoints/trinity_dpo'
 cluster:
   node_num: 1
   gpu_per_node: 8
 buffer:
+  total_epochs: 20
+  batch_size: 32
   max_retry_times: 3
   max_retry_interval: 1
   trainer_input:
@@ -32,7 +34,5 @@ trainer:
   trainer_type: 'verl'
   trainer_config_path: 'examples/dpo_humanlike/train_dpo.yaml'
   save_interval: 30
-monitor:
-  cache_root_dir: ""
-  project: "dpo_example"
-  name: "trinity_dpo"
+  actor_use_kl_loss: True
+  actor_kl_loss_coef: 0.1

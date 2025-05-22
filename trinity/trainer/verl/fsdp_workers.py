@@ -585,7 +585,6 @@ class ActorRolloutRefWorker(Worker):
 
                 master_address, master_port = self.get_availale_master_addr_port()
                 world_size = self.config.synchronizer.explorer_world_size + 1
-                backend = self.config.synchronizer.backend
                 print(f"Trainer init_process_group {master_address}:{master_port} ({world_size}).")
                 explorer = ray.get_actor("explorer")
                 group_name = "rollout_weight_sync"
@@ -600,7 +599,7 @@ class ActorRolloutRefWorker(Worker):
                 timeout = self.config.synchronizer.sync_timeout
 
                 self._model_update_group = init_process_group(
-                    backend=backend,
+                    backend="nccl",
                     init_method=init_method,
                     timeout=timeout,
                     world_size=world_size,

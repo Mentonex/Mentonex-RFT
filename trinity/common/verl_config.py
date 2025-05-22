@@ -270,9 +270,19 @@ class veRLConfig:
 
     def synchronize_config(self, config: Config) -> None:
         """Synchronize config."""
-        rollout_gpu_num = config.explorer.tensor_parallel_size * config.explorer.engine_num + sum(
-            [model.tensor_parallel_size for model in config.explorer.auxiliary_models]
-        )
+        if config.mode != "train":
+            rollout_gpu_num = (
+                config.explorer.rollout_model.tensor_parallel_size
+                * config.explorer.rollout_model.engine_num
+                + sum(
+                    [
+                        model.tensor_parallel_size * model.engine_num
+                        for model in config.explorer.auxiliary_models
+                    ]
+                )
+            )
+        else:
+            rollout_gpu_num = 0
         rollout_node_num = rollout_gpu_num // config.cluster.gpu_per_node
         self.trainer.nnodes = config.cluster.node_num - rollout_node_num
         self.actor_rollout_ref.model.path = config.model.model_path
@@ -291,34 +301,41 @@ class veRLConfig:
         self.actor_rollout_ref.synchronizer = config.synchronizer
         self.buffer = config.buffer
         world_size = self.trainer.nnodes * self.trainer.n_gpus_per_node
-        if config.global_config.batch_size % world_size != 0:
+        if config.buffer.batch_size % world_size != 0:
             raise ValueError(
-                f"batch_size ({config.global_config.batch_size}) must be divisible by ({world_size})"
+                f"batch_size ({config.buffer.batch_size}) must be divisible by ({world_size})"
             )
         # TODO: use dynamic read_batch_size to support multi-round scenarios
         # Get the experiences of one explore step
-        self.trainer.project_name = config.monitor.project
-        self.trainer.experiment_name = config.monitor.name
-        self.data.train_batch_size = config.global_config.batch_size
-        self.trainer.default_local_dir = config.model.checkpoint_path
-        self.trainer.sft_warmup_steps = config.trainer.sft_warmup_steps
-        self.actor_rollout_ref.actor.ppo_mini_batch_size = config.global_config.batch_size
+        self.trainer.project_name = config.project
+        self.trainer.experiment_name = config.name
+        self.data.train_batch_size = config.buffer.batch_size
+        self.trainer.default_local_dir = config.checkpoint_job_dir
+        self.trainer.sft_warmup_steps = config.buffer.trainer_input.sft_warmup_steps
+        self.actor_rollout_ref.actor.ppo_mini_batch_size = config.buffer.batch_size
         self.actor_rollout_ref.rollout.temperature = (
             config.buffer.explorer_input.taskset.rollout_args.temperature
         )
-        self.actor_rollout_ref.rollout.n = (
-            config.buffer.explorer_input.taskset.rollout_args.repeat_times
-        )
-        self.critic.ppo_mini_batch_size = config.global_config.batch_size
+        self.actor_rollout_ref.rollout.n = config.algorithm.repeat_times
+        self.critic.ppo_mini_batch_size = config.buffer.batch_size
         self.critic.rollout_n = self.actor_rollout_ref.rollout.n
 
-        self.actor_rollout_ref.actor.algorithm_type = config.global_config.algorithm_type
-        if config.global_config.algorithm_type == AlgorithmType.PPO:
+        self.actor_rollout_ref.actor.algorithm_type = config.algorithm.algorithm_type
+        if config.algorithm.algorithm_type == AlgorithmType.PPO:
             logger.info("Using GAE `adv_estimator` for PPO")
             self.algorithm.adv_estimator = AdvantageEstimator.GAE.value
-        elif config.global_config.algorithm_type == AlgorithmType.GRPO:
+        elif config.algorithm.algorithm_type == AlgorithmType.GRPO:
             logger.info("Using GRPO `adv_estimator` for GRPO")
             self.algorithm.adv_estimator = AdvantageEstimator.GRPO.value
+
+        # copy trainer related config from global config
+        self.algorithm.gamma = config.algorithm.gamma
+        self.algorithm.lam = config.algorithm.lam
+        self.actor_rollout_ref.actor.use_kl_loss = config.trainer.actor_use_kl_loss
+        self.actor_rollout_ref.actor.kl_loss_coef = config.trainer.actor_kl_loss_coef
+        self.actor_rollout_ref.actor.entropy_coeff = config.trainer.actor_entropy_coef
+        self.actor_rollout_ref.actor.grad_clip = config.trainer.actor_grad_clip
+        self.actor_rollout_ref.actor.clip_ratio = config.trainer.actor_clip_ratio
 
         if self.actor_rollout_ref.actor.algorithm_type.is_dpo():  # for DPO
             if not self.actor_rollout_ref.actor.use_kl_loss:

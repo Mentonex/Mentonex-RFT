@@ -48,16 +48,14 @@ class Explorer:
             self.eval_tasksets.append(get_buffer_reader(eval_taskset_config, self.config.buffer))
         self.runner_pool = self._init_runner_pool()
         self.monitor = Monitor(
-            project=self.config.monitor.project,
-            name=self.config.monitor.name,
+            project=self.config.project,
+            name=self.config.name,
             role="explorer",
             config=config,
         )
-        self.max_pending_task_num = self.config.explorer.runner_num
-        self.max_waiting_steps = max(1, int(self.config.explorer.max_waiting_steps))
-        self.batch_size = config.global_config.batch_size
+        self.batch_size = config.buffer.batch_size
         self.update_interval = (
-            self.config.synchronizer.sync_interval * self.config.global_config.batch_size
+            self.config.synchronizer.sync_interval * self.config.buffer.batch_size
         )
         self.use_checkpoint_weights_update = (
             self.config.synchronizer.sync_method == SyncMethod.CHECKPOINT
@@ -79,7 +77,9 @@ class Explorer:
     ):
         # In checkpoint mode, we use explorer to store the model weights which has no rank
         base_offset = 0 if self.use_checkpoint_weights_update else 1
-        world_size = len(self.models) * self.config.explorer.tensor_parallel_size + base_offset
+        world_size = (
+            len(self.models) * self.config.explorer.rollout_model.tensor_parallel_size + base_offset
+        )
         self.logger.info(
             f"Initialize process group for weight synchronization, "
             f"master_address={master_address}, master_port={master_port}, "
@@ -90,10 +90,10 @@ class Explorer:
             model.init_process_group.remote(
                 master_address=master_address,
                 master_port=master_port,
-                rank_offset=i * self.config.explorer.tensor_parallel_size + base_offset,
+                rank_offset=i * self.config.explorer.rollout_model.tensor_parallel_size
+                + base_offset,
                 world_size=world_size,
                 group_name=ROLLOUT_WEIGHT_SYNC_GROUP_NAME,
-                backend=self.config.explorer.backend,
                 timeout=self.config.synchronizer.sync_timeout,
                 update_with_checkpoint=self.use_checkpoint_weights_update,
             )
@@ -102,14 +102,14 @@ class Explorer:
         ray.get(refs)
 
     def _init_runner_pool(self) -> RunnerPool:
-        if self.config.explorer.engine_type != "vllm_async":
+        if self.config.explorer.rollout_model.engine_type != "vllm_async":
             # sync model requires the same number of runners as the number of models
-            self.config.explorer.runner_num = self.config.explorer.engine_num
+            self.config.explorer.runner_num = self.config.explorer.rollout_model.engine_num
             self.logger.info(
                 "Sync vLLM model requires the same number of runners as the number of models"
             )
-        if self.config.explorer.runner_num < self.config.explorer.engine_num:
-            self.config.explorer.runner_num = self.config.explorer.engine_num
+        if self.config.explorer.runner_num < self.config.explorer.rollout_model.engine_num:
+            self.config.explorer.runner_num = self.config.explorer.rollout_model.engine_num
             self.logger.info(
                 f"Number of Runners is less than number of models, set to {self.config.explorer.runner_num}"
             )
@@ -129,7 +129,7 @@ class Explorer:
         # TODO: support more checkpoint types
         try:
             checkpoint_dir = get_checkpoint_dir_with_step_num(
-                checkpoint_root_path=self.config.model.checkpoint_path,
+                checkpoint_root_path=self.config.checkpoint_job_dir,
                 trainer_type=self.config.trainer.trainer_type,
                 step_num=step_num,
             )
@@ -162,7 +162,7 @@ class Explorer:
             if not explore_status:
                 break
             self.sync_weight()
-            if explore_iter % self.config.global_config.eval_interval == 0:
+            if explore_iter % self.config.explorer.eval_interval == 0:
                 self.eval()
                 self.logger.info("Evaluation finished.")
         self.logger.info("Explorer finished.")
@@ -177,9 +177,7 @@ class Explorer:
             explore_status: whether there are more tasks to explore.
             explore_step_num: the number of explore steps
         """
-        task_num_per_period = (
-            self.config.synchronizer.sync_interval * self.config.global_config.batch_size
-        )
+        task_num_per_period = self.config.synchronizer.sync_interval * self.config.buffer.batch_size
 
         st = time.time()
         all_metrics = defaultdict(list)
@@ -265,7 +263,7 @@ class Explorer:
     def benchmark(self) -> bool:
         """Benchmark the model checkpoints."""
         # benchmark on the latest checkpoint
-        if self.config.global_config.eval_on_latest_ckp:
+        if self.config.explorer.eval_on_latest_checkpoint:
             self._checkpoint_weights_update()
             self.eval()
             return True
@@ -274,8 +272,8 @@ class Explorer:
         all_ckp_steps = sorted(
             [
                 int(ckp.split("global_step_")[-1])
-                for ckp in os.listdir(self.config.model.checkpoint_path)
-                if os.path.isdir(os.path.join(self.config.model.checkpoint_path, ckp))
+                for ckp in os.listdir(self.config.checkpoint_job_dir)
+                if os.path.isdir(os.path.join(self.config.checkpoint_job_dir, ckp))
                 and ckp.startswith("global_step_")
             ]
         )

@@ -44,7 +44,7 @@ class WorkflowRunner:
         self.model = model
         self.model_wrapper = ModelWrapper(
             model,
-            config.explorer.engine_type,
+            config.explorer.rollout_model.engine_type,
         )
         self.auxiliary_models = []
         if auxiliary_models is not None:
