@@ -108,7 +108,7 @@ class ModelWrapper:
         if not ray.get(self.model.has_api_server.remote()):
             raise ValueError(
                 "OpenAI API server is not running on current model."
-                "Please set `explorer.enable_openai_api` to `True`."
+                "Please set `enable_openai_api` to `True`."
             )
         api_address = None
         while True:

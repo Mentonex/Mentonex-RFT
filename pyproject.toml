@@ -5,7 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name =  "trinity-rft"
 version = "0.1.0"
-authors = []
+authors = [
+    {name="Trinity-RFT Team", email="trinity-rft@outlook.com"},
+]
 description = "Trinity-RFT: A Framework for Training Large Language Models with Reinforcement Fine-Tuning"
 readme = "README.md"
 classifiers = [
@@ -97,3 +99,7 @@ exclude = '''
 
 [tool.isort]
 known_third_party = ["wandb"]
+
+[project.urls]
+"Homepage" = "https://github.com/modelscope/Trinity-RFT"
+"Documentation" = "https://modelscope.github.io/Trinity-RFT/"
