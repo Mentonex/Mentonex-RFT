@@ -50,29 +50,41 @@ class ConfigManager:
             "mode": "both",
             "project": "Trinity-RFT",
             "exp_name": "qwen2.5-1.5B",
+            "checkpoint_root_dir": "",
             "monitor_type": MonitorType.TENSORBOARD.value,
+            # Algorithm Configs
+            "algorithm_type": AlgorithmType.PPO.value,
+            "_grouped_adv_repeat_times": 2,
+            "_not_grouped_adv_repeat_times": 1,
+            "repeat_times": 1,
+            "gamma": 1.0,
+            "lam": 1.0,
             # Model Configs
             "model_path": "",
             "critic_model_path": "",
-            "checkpoint_path": "",
+            "max_prompt_tokens": 1024,
+            "max_response_tokens": 1024,
+            # Cluster Config
             "node_num": 1,
             "gpu_per_node": 8,
             "total_gpu_num": 8,
             "trainer_gpu_num": 6,
-            "max_prompt_tokens": 1024,
-            "max_response_tokens": 1024,
-            # Global Configs
+            # Buffer Configs
             "total_epochs": 20,
             "_train_batch_size_per_gpu": 16,
             "train_batch_size": 96,
-            "eval_interval": 1000,
-            "algorithm_type": AlgorithmType.PPO.value,
+            "buffer_max_retry_times": 3,
+            "max_retry_interval": 1,
             # Taskset Configs
             "taskset_path": "",
             "taskset_subset_name": None,
             "taskset_split": "train",
             "taskset_prompt_key": "question",
             "taskset_response_key": "answer",
+            "temperature": 1.0,
+            "top_p": 1.0,  # TODO: to be used
+            "top_k": -1,  # TODO: to be used
+            "logprobs": 0,
             # Eval Taskset Configs
             "_eval_tasksets_num": 0,
             # Explorer Input Configs
@@ -80,15 +92,13 @@ class ConfigManager:
             "default_reward_fn_type": "math_reward",
             "system_prompt": None,
             "reply_prefix": None,
-            # Experience Buffer Configs
+            # Experience Buffer / DPO Dataset Configs
             "_dpo_storage_type": StorageType.FILE.value,
             "_not_dpo_storage_type": StorageType.QUEUE.value,
             "storage_type": StorageType.QUEUE.value,
             "_dpo_experience_buffer_path": "",
             "_not_dpo_experience_buffer_path": "",
             "experience_buffer_path": "",
-            "buffer_max_retry_times": 3,
-            "max_retry_interval": 1,
             "dpo_dataset_train_split": "train",
             "dpo_dataset_prompt_type": PromptType.MESSAGES.value,
             "dpo_dataset_prompt_key": "prompt",
@@ -101,26 +111,32 @@ class ConfigManager:
             "sft_warmup_messages_key": "messages",
             "sft_warmup_prompt_key": "prompt",
             "sft_warmup_response_key": "response",
+            # TrainerInput Configs
+            # TODO: read_experience_strategy
+            "sft_warmup_steps": 0,
             # Explorer and Sync Configs
-            "engine_type": "vllm_async",
-            "engine_num": 2,
             "runner_num": 32,
-            "_grouped_adv_repeat_times": 2,
-            "_not_grouped_adv_repeat_times": 1,
-            "repeat_times": 1,
-            "tensor_parallel_size": 1,
-            "enable_prefix_caching": False,
-            "enforce_eager": True,
-            "dtype": "bfloat16",
-            "temperature": 1.0,
-            "top_p": 1.0,
-            "top_k": -1,
-            "seed": 42,
-            "logprobs": 0,
-            "gpu_memory_utilization": 0.9,
-            "enable_chunked_prefill": False,
             "max_timeout": 900,
             "explorer_max_retry_times": 2,
+            "eval_interval": 1000,
+            "eval_on_latest_checkpoint": True,
+            # Rollout Model Configs
+            "engine_type": "vllm_async",
+            "engine_num": 2,
+            "tensor_parallel_size": 1,
+            "use_v1": True,
+            "enforce_eager": True,
+            "enable_prefix_caching": False,
+            "enable_chunked_prefill": False,
+            "gpu_memory_utilization": 0.9,
+            "dtype": "bfloat16",
+            "seed": 42,
+            # TODO: max_prompt_tokens
+            # TODO: max_response_tokens
+            # TODO: chat_template
+            "enable_thinking": False,
+            "enable_openai_api": False,
+            # TODO: Auxiliary Models Configs
             # Synchronizer Configs
             "_not_dpo_sync_method": SyncMethod.NCCL.value,
             "sync_method": SyncMethod.NCCL.value,
@@ -128,9 +144,15 @@ class ConfigManager:
             "sync_timeout": 1200,
             # Trainer Configs
             "trainer_type": "verl",
-            "sft_warmup_steps": 0,
             "_nccl_save_interval": 100,
             "save_interval": 100,
+            # TODO: enable_preview
+            "_not_dpo_actor_use_kl_loss": True,
+            "actor_use_kl_loss": True,
+            "actor_kl_loss_coef": 0.001,
+            "actor_entropy_coef": 0.001,
+            "actor_grad_clip": 1.0,
+            "actor_clip_ratio": 0.2,
             # veRL Trainer Configs
             "training_args": [
                 "balance_batch",
@@ -151,8 +173,6 @@ class ConfigManager:
             "del_local_ckpt_after_load": False,
             "max_actor_ckpt_to_keep": None,
             "max_critic_ckpt_to_keep": None,
-            "gamma": 1.0,
-            "lam": 1.0,
             "adv_estimator": "gae",
             "norm_adv_by_std_in_grpo": True,
             "use_kl_in_reward": False,
@@ -170,12 +190,6 @@ class ConfigManager:
             "actor_tau": 0.0,
             "actor_opmd_baseline": "mean",
             "actor_use_uid": False,
-            "actor_grad_clip": 1.0,
-            "actor_clip_ratio": 0.2,
-            "actor_entropy_coef": 0.001,
-            "_not_dpo_actor_use_kl_loss": True,
-            "actor_use_kl_loss": True,
-            "actor_kl_loss_coef": 0.001,
             "actor_kl_loss_type": "low_var_kl",
             "actor_checkpoint": ["model", "hf_model", "optimizer", "extra"],
             "critic_lr": 1e-6,
@@ -204,7 +218,7 @@ class ConfigManager:
     def _set_project(self):
         st.text_input("Project", key="project")
 
-    def _set_name(self):
+    def _set_exp_name(self):
         st.text_input("Experiment Name", key="exp_name")
 
     def _set_monitor_type(self):
@@ -221,18 +235,19 @@ class ConfigManager:
             st.warning("Please input model path.")
 
     def _set_critic_model_path(self):
-        st.text_input(
-            "Critic Model Path (defaults to `model_path`)",
-            key="critic_model_path",
-        )
+        if st.session_state["adv_estimator"] == AdvantageEstimator.GAE.value:
+            st.text_input(
+                "Critic Model Path (defaults to `model_path`)",
+                key="critic_model_path",
+            )
 
-    def _set_checkpoint_path(self):
-        st.text_input("Checkpoint Path", key="checkpoint_path")
-        if not st.session_state["checkpoint_path"].strip():  # TODO: may auto generate
-            self.unfinished_fields.add("checkpoint_path")
-            st.warning("Please input checkpoint path.")
-        elif not os.path.isabs(st.session_state["checkpoint_path"].strip()):
-            self.unfinished_fields.add("checkpoint_path")
+    def _set_checkpoint_root_dir(self):
+        st.text_input("Checkpoint Root Dir", key="checkpoint_root_dir")
+        if not st.session_state["checkpoint_root_dir"].strip():  # TODO: may auto generate
+            self.unfinished_fields.add("checkpoint_root_dir")
+            st.warning("Please input checkpoint root dir.")
+        elif not os.path.isabs(st.session_state["checkpoint_root_dir"].strip()):
+            self.unfinished_fields.add("checkpoint_root_dir")
             st.warning("Please input an absolute path.")
 
     def _set_node_num(self):
@@ -346,8 +361,9 @@ class ConfigManager:
             response_key_col.text_input(
                 "Response Key :orange-badge[(Needs review)]", key="taskset_response_key"
             )
+            self._set_configs_with_st_columns(["temperature", "logprobs"])
 
-    def _set_eval_taskset_idx(self, idx):
+    def _set_eval_taskset_idx(self, idx):  # TODO: add delete
         st.text_input(
             "Taskset Name",
             key=f"eval_taskset_{idx}_name",
@@ -457,7 +473,7 @@ if `storage_type == StorageType.SQL`, this should be a path to database."""
 
 if `storage_type == StorageType.QUEUE`, default to `None`,
 
-if `storage_type == StorageType.SQL`, default to `sqlite:///{os.path.join(checkpoint_path, '.cache', project_name, experiment_name)}/data.db`."""
+if `storage_type == StorageType.SQL`, default to `sqlite:///{os.path.join(checkpoint_root_dir, '.cache', project_name, experiment_name)}/data.db`."""
 
         def on_change():
             if st.session_state["algorithm_type"] == AlgorithmType.DPO.value:
@@ -545,7 +561,9 @@ if `storage_type == StorageType.SQL`, default to `sqlite:///{os.path.join(checkp
                 sft_warmup_messages_key_col,
                 sft_warmup_prompt_key_col,
                 sft_warmup_response_key_col,
-            ) = st.columns(3)
+            ) = st.columns(
+                3
+            )  # TODO: select by prompt type
             sft_warmup_messages_key_col.text_input(
                 "SFT Dataset Messages Key :orange-badge[(Needs review)]",
                 key="sft_warmup_messages_key",
@@ -572,7 +590,7 @@ if node_num > 1:
 ```"""
 
     def _set_engine_num(self):
-        total_gpu_num = st.session_state["gpu_per_node"] * st.session_state["node_num"]
+        total_gpu_num = st.session_state["total_gpu_num"]
         max_engine_num = (total_gpu_num - 1) // st.session_state["tensor_parallel_size"]
         if st.session_state["engine_num"] > max_engine_num:
             st.session_state["engine_num"] = max_engine_num
@@ -588,7 +606,7 @@ if node_num > 1:
         )
 
     def _set_tensor_parallel_size(self):
-        total_gpu_num = st.session_state["gpu_per_node"] * st.session_state["node_num"]
+        total_gpu_num = st.session_state["total_gpu_num"]
         max_tensor_parallel_size = (total_gpu_num - 1) // st.session_state["engine_num"]
         if st.session_state["tensor_parallel_size"] > max_tensor_parallel_size:
             st.session_state["tensor_parallel_size"] = max_tensor_parallel_size
@@ -619,6 +637,33 @@ if node_num > 1:
                 st.warning(
                     "Please ensure that `engine_num * tensor_parallel_size` can be divided by `gpu_per_node` when `node_num > 1`."
                 )
+
+    def _set_repeat_times(self):  # TODO
+        grouped_adv_algorithms = [
+            AlgorithmType.GRPO.value,
+            AlgorithmType.OPMD.value,  # TODO: may add rloo
+        ]
+        if st.session_state["algorithm_type"] in grouped_adv_algorithms:
+            min_repeat_times = 2
+            st.session_state["repeat_times"] = st.session_state["_grouped_adv_repeat_times"]
+        else:
+            min_repeat_times = 1
+            st.session_state["repeat_times"] = st.session_state["_not_grouped_adv_repeat_times"]
+
+        def on_change():
+            if st.session_state["algorithm_type"] in grouped_adv_algorithms:
+                st.session_state["_grouped_adv_repeat_times"] = st.session_state["repeat_times"]
+            else:
+                st.session_state["_not_grouped_adv_repeat_times"] = st.session_state["repeat_times"]
+
+        st.number_input(
+            "Repeat Times",
+            key="repeat_times",
+            min_value=min_repeat_times,
+            help="`repeat_times` is used to set how many experiences each task can generate, "
+            "and it must be greater than `1` when `algorithm_type` is `opmd` or `grpo`.",
+            on_change=on_change,
+        )
 
     def _set_sync_method(self):
         if st.session_state["algorithm_type"] == AlgorithmType.DPO.value:
@@ -686,6 +731,9 @@ if node_num > 1:
     def _set_logprobs(self):
         st.number_input("Logprobs", key="logprobs", min_value=0, max_value=20)
 
+    def _set_use_v1(self):
+        st.checkbox("Use V1 Engine", key="use_v1")
+
     def _set_enable_prefix_caching(self):
         st.checkbox("Prefix Caching", key="enable_prefix_caching")
 
@@ -699,6 +747,12 @@ if node_num > 1:
 
     def _set_enable_chunked_prefill(self):
         st.checkbox("Chunked Prefill", key="enable_chunked_prefill")
+
+    def _set_enable_thinking(self):
+        st.checkbox("Enable Thinking For Qwen3", key="enable_thinking")
+
+    def _set_enable_openai_api(self):
+        st.checkbox("Enable OpenAI API", key="enable_openai_api")
 
     def _set_max_timeout(self):
         st.number_input("Max Timeout", key="max_timeout", min_value=0)
@@ -745,6 +799,9 @@ if node_num > 1:
     def _set_eval_interval(self):
         st.number_input("Eval Interval", key="eval_interval", min_value=1)
 
+    def _set_eval_on_latest_checkpoint(self):
+        st.checkbox("Eval on Latest Checkpoint", key="eval_on_latest_ckp")
+
     def _set_training_args(self):
         st.multiselect(
             "Training Args",
@@ -786,33 +843,6 @@ if node_num > 1:
 
     def _set_ppo_epochs(self):
         st.number_input("PPO Epochs", key="ppo_epochs", min_value=1)
-
-    def _set_repeat_times(self):  # TODO
-        grouped_adv_algorithms = [
-            AlgorithmType.GRPO.value,
-            AlgorithmType.OPMD.value,  # TODO: may add rloo
-        ]
-        if st.session_state["algorithm_type"] in grouped_adv_algorithms:
-            min_repeat_times = 2
-            st.session_state["repeat_times"] = st.session_state["_grouped_adv_repeat_times"]
-        else:
-            min_repeat_times = 1
-            st.session_state["repeat_times"] = st.session_state["_not_grouped_adv_repeat_times"]
-
-        def on_change():
-            if st.session_state["algorithm_type"] in grouped_adv_algorithms:
-                st.session_state["_grouped_adv_repeat_times"] = st.session_state["repeat_times"]
-            else:
-                st.session_state["_not_grouped_adv_repeat_times"] = st.session_state["repeat_times"]
-
-        st.number_input(
-            "Repeat Times",
-            key="repeat_times",
-            min_value=min_repeat_times,
-            help="`repeat_times` is used to set how many experiences each task can generate, "
-            "and it must be greater than `1` when `algorithm_type` is `opmd` or `grpo`.",
-            on_change=on_change,
-        )
 
     def _set_training_strategy(self):
         st.selectbox(
@@ -1105,11 +1135,11 @@ if node_num > 1:
 
     def beginner_mode(self):
         st.header("Essential Configs")
-        self._set_configs_with_st_columns(["project", "name"], columns_config=[1, 3])
+        self._set_configs_with_st_columns(["project", "exp_name"], columns_config=[1, 3])
 
         self._set_model_path()
 
-        self._set_checkpoint_path()
+        self._set_checkpoint_root_dir()
 
         self._set_taskset_path()
 
@@ -1169,12 +1199,12 @@ if node_num > 1:
             self._set_configs_with_st_columns(["critic_ppo_micro_batch_size_per_gpu", "critic_lr"])
 
     def _expert_model_part(self):
-        self._set_configs_with_st_columns(["project", "name"], columns_config=[1, 3])
+        self._set_configs_with_st_columns(["project", "exp_name"], columns_config=[1, 3])
 
         self._set_model_path()
         self._set_critic_model_path()
 
-        self._set_checkpoint_path()
+        self._set_checkpoint_root_dir()
 
         self._set_configs_with_st_columns(["monitor_type", "node_num", "gpu_per_node"])
         self._set_configs_with_st_columns(["max_prompt_tokens", "max_response_tokens"])
@@ -1213,34 +1243,36 @@ if node_num > 1:
             self._set_configs_with_st_columns(["buffer_max_retry_times", "max_retry_interval"])
 
     def _expert_explorer_part(self):
-        self._set_configs_with_st_columns(
-            ["engine_type", "engine_num", "tensor_parallel_size", "repeat_times"]
-        )
-        self._check_engine_num_and_tp_size()
-
         self._set_configs_with_st_columns(["sync_method", "sync_interval", "sync_timeout"])
 
-        with st.expander("Advanced Config"):
+        self._set_configs_with_st_columns(
+            [
+                "runner_num",
+                "max_timeout",
+                "explorer_max_retry_times",
+            ]
+        )
+
+        self._set_configs_with_st_columns(["eval_interval", "eval_on_latest_checkpoint"])
+
+        with st.expander("Rollout Model Config", expanded=True):
+            self._set_configs_with_st_columns(["engine_type", "engine_num", "tensor_parallel_size"])
+            self._check_engine_num_and_tp_size()
+
+            self._set_configs_with_st_columns(["gpu_memory_utilization", "dtype", "seed"])
+
             self._set_configs_with_st_columns(
-                ["runner_num", "temperature", "top_p", "top_k", "seed", "logprobs"]
+                ["use_v1", "enforce_eager", "enable_prefix_caching", "enable_chunked_prefill"]
             )
 
-            self._set_configs_with_st_columns(["dtype", "gpu_memory_utilization"])
-            self._set_configs_with_st_columns(
-                [
-                    "max_timeout",
-                    "explorer_max_retry_times",
-                ]
-            )
+            self._set_configs_with_st_columns(["enable_thinking", "enable_openai_api"])
 
-            self._set_configs_with_st_columns(
-                ["enable_prefix_caching", "enforce_eager", "enable_chunked_prefill"]
-            )
+        with st.expander("Auxiliary Models", expanded=True):  # TODO
+            pass
 
     def _expert_trainer_part(self):
-        self._set_configs_with_st_columns(  # TODO: may add `trainer_type`
-            ["algorithm_type", "sft_warmup_steps", "eval_interval", "save_interval"]
-        )
+        self._set_configs_with_st_columns(["algorithm_type", "gamma", "lam"])
+        self._set_configs_with_st_columns(["repeat_times", "save_interval"])
         self._check_sft_warmup_dataset_path()
 
         if st.session_state["trainer_type"] == "verl":
@@ -1280,7 +1312,6 @@ if node_num > 1:
 
         with rl_algorithm_tab:
             st.subheader("RL Algorithm Config")
-            self._set_configs_with_st_columns(["gamma", "lam"])
             self._set_configs_with_st_columns(["norm_adv_by_std_in_grpo", "use_kl_in_reward"])
             self._set_configs_with_st_columns(["kl_penalty", "kl_ctrl_type", "kl_ctrl_coef"])
             self._set_configs_with_st_columns(["horizon", "target_kl"])
@@ -1341,7 +1372,7 @@ if node_num > 1:
             with tab:
                 func()
 
-    def _generate_verl_config(self, trainer_nnodes: int = 1, trainer_n_gpus_per_node: int = 8):
+    def _generate_verl_config(self):
         balance_batch = "balance_batch" in st.session_state["training_args"]
         enable_gradient_checkpointing = (
             "gradient_checkpointing" in st.session_state["training_args"]
@@ -1363,33 +1394,10 @@ if node_num > 1:
             st.session_state["max_prompt_tokens"] + st.session_state["max_response_tokens"]
         )
 
-        critic_model_path = (
-            st.session_state["critic_model_path"].strip()
-            if st.session_state["critic_model_path"].strip()
-            else st.session_state["model_path"]
-        )
         trainer_config = {
-            "data": {
-                "tokenizer": None,
-                "train_files": "placeholder",
-                "val_files": "placeholder",
-                "prompt_key": "placeholder",
-                "max_prompt_length": st.session_state["max_prompt_tokens"],
-                "max_response_length": st.session_state["max_response_tokens"],
-                "train_batch_size": st.session_state["train_batch_size"]
-                * st.session_state["repeat_times"],
-                "val_batch_size": None,
-                "return_raw_input_ids": False,
-                "return_raw_chat": False,
-                "shuffle": True,
-                "filter_overlong_prompts": False,
-                "truncation": "error",
-                "image_key": "images",
-            },
             "actor_rollout_ref": {
                 "hybrid_engine": True,
                 "model": {
-                    "path": st.session_state["model_path"],
                     "external_lib": None,
                     "override_config": {},
                     "enable_gradient_checkpointing": enable_gradient_checkpointing,
@@ -1403,11 +1411,6 @@ if node_num > 1:
                     ],
                     "use_dynamic_bsz": use_dynamic_bsz,
                     "ppo_max_token_len_per_gpu": ppo_max_token_len_per_gpu,
-                    "grad_clip": st.session_state["actor_grad_clip"],
-                    "clip_ratio": st.session_state["actor_clip_ratio"],
-                    "entropy_coeff": st.session_state["actor_entropy_coef"],
-                    "use_kl_loss": st.session_state["actor_use_kl_loss"],
-                    "kl_loss_coef": st.session_state["actor_kl_loss_coef"],
                     "kl_loss_type": st.session_state["actor_kl_loss_type"],
                     "ppo_epochs": st.session_state["ppo_epochs"],
                     "shuffle": False,
@@ -1441,34 +1444,32 @@ if node_num > 1:
                         "actor_ulysses_sequence_parallel_size"
                     ],
                 },
-                "rollout": {
-                    "name": "vllm",
-                    "temperature": st.session_state["temperature"],
-                    "top_k": -1,
-                    "top_p": 1,
-                    "use_fire_sampling": False,
-                    "prompt_length": st.session_state["max_prompt_tokens"],
-                    "response_length": st.session_state["max_response_tokens"],
-                    "dtype": "bfloat16",
-                    "gpu_memory_utilization": 0.4,
-                    "ignore_eos": False,
-                    "enforce_eager": True,
-                    "free_cache_engine": True,
-                    "load_format": "dummy_dtensor",
-                    "tensor_model_parallel_size": 2,
-                    "max_num_batched_tokens": 8192,
-                    "max_model_len": None,
-                    "max_num_seqs": 1024,
-                    "log_prob_micro_batch_size_per_gpu": 4,
-                    "log_prob_use_dynamic_bsz": use_dynamic_bsz,
-                    "log_prob_max_token_len_per_gpu": ppo_max_token_len_per_gpu,
-                    "disable_log_stats": True,
-                    "enable_chunked_prefill": True,
-                    "do_sample": True,
-                    "n": st.session_state["repeat_times"],
+            },
+            "custom_reward_function": {"path": None, "name": "compute_score"},
+            "algorithm": {
+                "kl_penalty": st.session_state["kl_penalty"],
+                "kl_ctrl": {
+                    "type": st.session_state["kl_ctrl_type"],
+                    "kl_coef": st.session_state["kl_ctrl_coef"],
                 },
             },
-            "critic": {
+            "trainer": {
+                "balance_batch": balance_batch,
+                "logger": ["tensorboard"],
+                "resume_mode": st.session_state["resume_mode"],
+                "resume_from_path": st.session_state["resume_from_path"],
+                "default_hdfs_dir": st.session_state["default_hdfs_dir"],
+                "remove_previous_ckpt_in_save": st.session_state["remove_previous_ckpt_in_save"],
+                "del_local_ckpt_after_load": st.session_state["del_local_ckpt_after_load"],
+                "val_before_train": False,
+                "max_actor_ckpt_to_keep": st.session_state["max_actor_ckpt_to_keep"],
+                "max_critic_ckpt_to_keep": st.session_state["max_critic_ckpt_to_keep"],
+            },
+        }
+
+        if st.session_state["adv_estimator"] == AdvantageEstimator.GAE.value:
+            trainer_config["trainer"]["critic_warmup"] = st.session_state["critic_warmup"]
+            trainer_config["critic"] = {
                 "strategy": st.session_state["training_strategy"],
                 "optim": {
                     "lr": st.session_state["critic_lr"],
@@ -1481,8 +1482,6 @@ if node_num > 1:
                     ),
                 },
                 "model": {
-                    "path": critic_model_path,
-                    "tokenizer_path": critic_model_path,
                     "override_config": {},
                     "external_lib": None,
                     "enable_gradient_checkpointing": enable_gradient_checkpointing,
@@ -1507,98 +1506,129 @@ if node_num > 1:
                 "grad_clip": st.session_state["critic_grad_clip"],
                 "cliprange_value": st.session_state["critic_cliprange_value"],
                 "checkpoint": {"contents": st.session_state["critic_checkpoint"]},
-            },
-            "reward_model": {
-                "enable": False,
-                "strategy": "fsdp",
-                "model": {
-                    "input_tokenizer": st.session_state["model_path"],
-                    "path": "~/models/FsfairX-LLaMA3-RM-v0.1",
-                    "external_lib": None,
-                    "use_remove_padding": False,
-                    "fsdp_config": {
-                        "min_num_params": 0,
-                        "param_offload": False,
-                        "fsdp_size": -1,
-                    },
-                },
-                "ulysses_sequence_parallel_size": 1,
-                "use_dynamic_bsz": use_dynamic_bsz,
-                "forward_max_token_len_per_gpu": ppo_max_token_len_per_gpu * 2,
-                "reward_manager": "naive",
-            },
-            "custom_reward_function": {"path": None, "name": "compute_score"},
-            "algorithm": {
-                "gamma": st.session_state["gamma"],
-                "lam": st.session_state["lam"],
-                "adv_estimator": st.session_state["adv_estimator"],
-                "kl_penalty": st.session_state["kl_penalty"],
-                "kl_ctrl": {
-                    "type": st.session_state["kl_ctrl_type"],
-                    "kl_coef": st.session_state["kl_ctrl_coef"],
-                },
-            },
-            "trainer": {
-                "balance_batch": balance_batch,
-                "total_epochs": st.session_state["total_epochs"],
-                "project_name": st.session_state["project"],
-                "experiment_name": st.session_state["exp_name"],
-                "logger": ["tensorboard"],
-                "val_generations_to_log_to_wandb": 0,
-                "nnodes": trainer_nnodes,
-                "n_gpus_per_node": trainer_n_gpus_per_node,
-                "save_freq": st.session_state["save_interval"],
-                "resume_mode": st.session_state["resume_mode"],
-                "resume_from_path": st.session_state["resume_from_path"],
-                "test_freq": 100,
-                "critic_warmup": st.session_state["critic_warmup"],
-                "default_hdfs_dir": st.session_state["default_hdfs_dir"],
-                "remove_previous_ckpt_in_save": st.session_state["remove_previous_ckpt_in_save"],
-                "del_local_ckpt_after_load": st.session_state["del_local_ckpt_after_load"],
-                "default_local_dir": st.session_state["checkpoint_path"],
-                "val_before_train": False,
-                "sync_freq": st.session_state["sync_interval"],
-                "max_actor_ckpt_to_keep": st.session_state["max_actor_ckpt_to_keep"],
-                "max_critic_ckpt_to_keep": st.session_state["max_critic_ckpt_to_keep"],
-            },
-        }
+            }
         return trainer_config
 
-    def generate_config(self):
-        if st.session_state["mode"] == "both":
-            trainer_nnodes = (
-                st.session_state["node_num"]
-                - st.session_state["engine_num"]
-                * st.session_state["tensor_parallel_size"]
-                // st.session_state["gpu_per_node"]
-            )
-        else:
-            trainer_nnodes = st.session_state["node_num"]
-        if st.session_state["node_num"] == 1 and st.session_state["mode"] == "both":
-            trainer_n_gpus_per_node = (
-                st.session_state["gpu_per_node"]
-                - st.session_state["engine_num"] * st.session_state["tensor_parallel_size"]
-            )
-        else:
-            trainer_n_gpus_per_node = st.session_state["gpu_per_node"]
-
+    def _gen_buffer_config(self):
         if st.session_state["algorithm_type"] != AlgorithmType.DPO.value:
             experience_buffer_path = st.session_state["experience_buffer_path"].strip()
             if (
                 not experience_buffer_path
                 and st.session_state["storage_type"] == StorageType.SQL.value
             ):
-                experience_buffer_path = f"sqlite:///{os.path.join(st.session_state['checkpoint_path'], '.cache', st.session_state['project'], st.session_state['exp_name'])}/data.db"
+                experience_buffer_path = f"sqlite:///{os.path.join(st.session_state['checkpoint_root_dir'], '.cache', st.session_state['project'], st.session_state['exp_name'])}/data.db"
 
         sft_storage_type = (
             StorageType.SQL.value
             if "://" in st.session_state["sft_warmup_dataset_path"]
             else StorageType.FILE.value
         )  # TODO
+
+        buffer_config = {
+            "batch_size": st.session_state["train_batch_size"],
+            "total_epochs": st.session_state["total_epochs"],
+            "explorer_input": {
+                "taskset": {
+                    "name": "taskset",
+                    "storage_type": StorageType.FILE.value,
+                    "path": st.session_state["taskset_path"],
+                    "split": st.session_state["taskset_split"],
+                    "subset_name": st.session_state["taskset_subset_name"],
+                    "format": {
+                        "prompt_key": st.session_state["taskset_prompt_key"],
+                        "response_key": st.session_state["taskset_response_key"],
+                    },
+                    "rollout_args": {
+                        "temperature": st.session_state["temperature"],
+                        "logprobs": st.session_state["logprobs"],
+                    },
+                },
+                "eval_tasksets": [],
+                "default_workflow_type": st.session_state["default_workflow_type"],
+                "default_reward_fn_type": st.session_state["default_reward_fn_type"],
+                "system_prompt": st.session_state["system_prompt"],
+                "reply_prefix": st.session_state["reply_prefix"],
+            },
+            "trainer_input": {
+                "experience_buffer": {
+                    "name": "experience_buffer",
+                    "storage_type": st.session_state["storage_type"],
+                    "path": experience_buffer_path,
+                },
+                "sft_warmup_steps": st.session_state["sft_warmup_steps"],
+            },
+            "max_retry_times": st.session_state["buffer_max_retry_times"],
+            "max_retry_interval": st.session_state["max_retry_interval"],
+        }
+
+        for idx in range(st.session_state["_eval_tasksets_num"]):
+            if st.session_state[f"eval_taskset_{idx}_path"].strip():
+                buffer_config["explorer_input"]["eval_tasksets"].append(
+                    {
+                        "name": st.session_state[f"eval_taskset_{idx}_name"],
+                        "path": st.session_state[f"eval_taskset_{idx}_path"],
+                        "subset_name": st.session_state[f"eval_taskset_{idx}_subset_name"],
+                        "split": st.session_state[f"eval_taskset_{idx}_split"],
+                        "prompt_key": st.session_state[f"eval_taskset_{idx}_prompt_key"],
+                        "response_key": st.session_state[f"eval_taskset_{idx}_response_key"],
+                    }
+                )
+        if st.session_state["algorithm_type"] == AlgorithmType.DPO.value:
+            experience_buffer = buffer_config["trainer_input"]["experience_buffer"]
+            experience_buffer["split"] = st.session_state["dpo_dataset_train_split"]
+            experience_buffer["format"] = {
+                "prompt_type": st.session_state["dpo_dataset_prompt_type"],
+                "prompt_key": st.session_state["dpo_dataset_prompt_key"],
+                "chosen_key": st.session_state["dpo_dataset_chosen_key"],
+                "rejected_key": st.session_state["dpo_dataset_rejected_key"],
+            }
+        if st.session_state["sft_warmup_dataset_path"].strip():
+            buffer_config["trainer_input"]["sft_warmup_dataset"] = {
+                "name": "sft_warmup_dataset",
+                "storage_type": sft_storage_type,
+                "path": st.session_state["sft_warmup_dataset_path"],
+                "split": st.session_state["sft_warmup_train_split"],
+                "format": {
+                    "prompt_type": st.session_state["sft_warmup_prompt_type"],
+                    "messages_key": st.session_state["sft_warmup_messages_key"],
+                    "prompt_key": st.session_state["sft_warmup_prompt_key"],
+                    "response_key": st.session_state["sft_warmup_response_key"],
+                },
+            }
+
+        return buffer_config
+
+    def _gen_explorer_config(self):
+        explorer_config = {
+            "runner_num": st.session_state["runner_num"],
+            "max_timeout": st.session_state["max_timeout"],
+            "max_retry_times": st.session_state["explorer_max_retry_times"],
+            "rollout_model": {
+                "engine_type": st.session_state["engine_type"],
+                "engine_num": st.session_state["engine_num"],
+                "tensor_parallel_size": st.session_state["tensor_parallel_size"],
+                "use_v1": st.session_state["use_v1"],
+                "enforce_eager": st.session_state["enforce_eager"],
+                "enable_prefix_caching": st.session_state["enable_prefix_caching"],
+                "enable_chunked_prefill": st.session_state["enable_chunked_prefill"],
+                "gpu_memory_utilization": st.session_state["gpu_memory_utilization"],
+                "dtype": st.session_state["dtype"],
+                "seed": st.session_state["seed"],
+                # "max_prompt_tokens": None,  # TODO
+                # "max_response_tokens": None,  # TODO
+                # "chat_template": None,  # TODO: add chat template
+                "enable_thinking": st.session_state["enable_thinking"],
+                "enable_openai_api": st.session_state["enable_openai_api"],
+            },
+            "auxiliary_models": [],
+            "eval_interval": st.session_state["eval_interval"],
+            "eval_on_latest_checkpoint": st.session_state["eval_on_latest_checkpoint"],
+        }
+        return explorer_config
+
+    def generate_config(self):
         if st.session_state["trainer_type"] == "verl":
-            trainer_config = self._generate_verl_config(
-                trainer_nnodes=trainer_nnodes, trainer_n_gpus_per_node=trainer_n_gpus_per_node
-            )
+            trainer_config = self._generate_verl_config()
         else:
             raise ValueError(f"Invalid trainer type: {st.session_state['trainer_type']}")
 
@@ -1623,12 +1653,15 @@ if node_num > 1:
             config = {
                 "mode": st.session_state["mode"],
                 "project": st.session_state["project"],
-                "name": st.session_state["name"],
-                "checkpoint_root_dir": st.session_state["checkpoint_path"],
+                "name": st.session_state["exp_name"],
+                "checkpoint_root_dir": st.session_state["checkpoint_root_dir"],
                 "algorithm": {
                     "algorithm_type": st.session_state["algorithm_type"],
                     "repeat_times": st.session_state["repeat_times"],
+                    "gamma": st.session_state["gamma"],
+                    "lam": st.session_state["lam"],
                 },
+                "data_processor": {},  # TODO: Add data processor config
                 "model": {
                     "model_path": st.session_state["model_path"],
                     "max_prompt_tokens": st.session_state["max_prompt_tokens"],
@@ -1638,74 +1671,26 @@ if node_num > 1:
                     "node_num": st.session_state["node_num"],
                     "gpu_per_node": st.session_state["gpu_per_node"],
                 },
-                "buffer": {
-                    "total_epochs": st.session_state["total_epochs"],
-                    "batch_size": st.session_state["train_batch_size"],
-                    "max_retry_times": st.session_state["buffer_max_retry_times"],
-                    "max_retry_interval": st.session_state["max_retry_interval"],
-                    "explorer_input": {
-                        "taskset": {
-                            "name": "taskset",
-                            "storage_type": StorageType.FILE.value,
-                            "path": st.session_state["taskset_path"],
-                            "split": st.session_state["taskset_split"],
-                            "subset_name": st.session_state["taskset_subset_name"],
-                            "format": {
-                                "prompt_key": st.session_state["taskset_prompt_key"],
-                                "response_key": st.session_state["taskset_response_key"],
-                            },
-                            "rollout_args": {
-                                "n": st.session_state["repeat_times"],
-                                "temperature": st.session_state["temperature"],
-                                "top_p": st.session_state["top_p"],
-                                "top_k": st.session_state["top_k"],
-                                "logprobs": st.session_state["logprobs"],
-                            },
-                        },
-                        "eval_tasksets": [],  # TODO: add eval tasksets
-                        "default_workflow_type": st.session_state["default_workflow_type"],
-                        "default_reward_fn_type": st.session_state["default_reward_fn_type"],
-                        "system_prompt": st.session_state["system_prompt"],
-                        "reply_prefix": st.session_state["reply_prefix"],
-                    },
-                    "trainer_input": {
-                        "experience_buffer": {
-                            "name": "experience_buffer",
-                            "storage_type": st.session_state["storage_type"],
-                            "path": experience_buffer_path,
-                        },
-                        "sft_warmup_steps": st.session_state["sft_warmup_steps"],
-                    },
+                "buffer": self._gen_buffer_config(),
+                "explorer": self._gen_explorer_config(),
+                "trainer": {
+                    "trainer_type": st.session_state["trainer_type"],
+                    "save_interval": st.session_state["save_interval"],
+                    "enable_preview": True,  # TODO
+                    "actor_use_kl_loss": st.session_state["actor_use_kl_loss"],
+                    "actor_kl_loss_coef": st.session_state["actor_kl_loss_coef"],
+                    "actor_entropy_coef": st.session_state["actor_entropy_coef"],
+                    "actor_grad_clip": st.session_state["actor_grad_clip"],
+                    "actor_clip_ratio": st.session_state["actor_clip_ratio"],
+                    "trainer_config": trainer_config,
                 },
-                "explorer": {
-                    "eval_interval": st.session_state["eval_interval"],
-                    "engine_type": st.session_state["engine_type"],
-                    "engine_num": st.session_state["engine_num"],
-                    "runner_num": st.session_state["runner_num"],
-                    # "chat_template": None,  # TODO: add chat template
-                    "tensor_parallel_size": st.session_state["tensor_parallel_size"],
-                    "enable_prefix_caching": st.session_state["enable_prefix_caching"],
-                    "enforce_eager": st.session_state["enforce_eager"],
-                    "dtype": st.session_state["dtype"],
-                    "seed": st.session_state["seed"],
-                    "gpu_memory_utilization": st.session_state["gpu_memory_utilization"],
-                    "enable_chunked_prefill": st.session_state["enable_chunked_prefill"],
-                    "use_v1": True,
-                    "max_timeout": st.session_state["max_timeout"],
-                    "max_retry_times": st.session_state["explorer_max_retry_times"],
+                "monitor": {
+                    "monitor_type": st.session_state["monitor_type"],
                 },
                 "synchronizer": {
                     "sync_method": st.session_state["sync_method"],
                     "sync_interval": st.session_state["sync_interval"],
                     "sync_timeout": st.session_state["sync_timeout"],
-                },
-                "trainer": {
-                    "trainer_type": st.session_state["trainer_type"],
-                    "trainer_config": trainer_config,
-                    "save_interval": st.session_state["save_interval"],
-                },
-                "monitor": {
-                    "monitor_type": st.session_state["monitor_type"],
                 },
             }
 
@@ -1716,40 +1701,6 @@ if node_num > 1:
                     else st.session_state["model_path"]
                 )
 
-            for idx in range(st.session_state["_eval_tasksets_num"]):
-                if st.session_state[f"eval_taskset_{idx}_path"].strip():
-                    config["buffer"]["explorer_input"]["eval_tasksets"].append(
-                        {
-                            "name": st.session_state[f"eval_taskset_{idx}_name"],
-                            "path": st.session_state[f"eval_taskset_{idx}_path"],
-                            "subset_name": st.session_state[f"eval_taskset_{idx}_subset_name"],
-                            "split": st.session_state[f"eval_taskset_{idx}_split"],
-                            "prompt_key": st.session_state[f"eval_taskset_{idx}_prompt_key"],
-                            "response_key": st.session_state[f"eval_taskset_{idx}_response_key"],
-                        }
-                    )
-            if st.session_state["algorithm_type"] == AlgorithmType.DPO.value:
-                experience_buffer = config["buffer"]["trainer_input"]["experience_buffer"]
-                experience_buffer["split"] = st.session_state["dpo_dataset_train_split"]
-                experience_buffer["format"] = {
-                    "prompt_type": st.session_state["dpo_dataset_prompt_type"],
-                    "prompt_key": st.session_state["dpo_dataset_prompt_key"],
-                    "chosen_key": st.session_state["dpo_dataset_chosen_key"],
-                    "rejected_key": st.session_state["dpo_dataset_rejected_key"],
-                }
-            if st.session_state["sft_warmup_dataset_path"].strip():
-                config["buffer"]["trainer_input"]["sft_warmup_dataset"] = {
-                    "name": "sft_warmup_dataset",
-                    "storage_type": sft_storage_type,
-                    "path": st.session_state["sft_warmup_dataset_path"],
-                    "split": st.session_state["sft_warmup_train_split"],
-                    "format": {
-                        "prompt_type": st.session_state["sft_warmup_prompt_type"],
-                        "messages_key": st.session_state["sft_warmup_messages_key"],
-                        "prompt_key": st.session_state["sft_warmup_prompt_key"],
-                        "response_key": st.session_state["sft_warmup_response_key"],
-                    },
-                }
             st.session_state.config_generated = True
             st.header("Generated Config File")
             buttons = st.container()
@@ -1758,7 +1709,7 @@ if node_num > 1:
             save_btn.download_button(
                 "Save",
                 data=yaml_config,
-                file_name=f"{config['monitor']['project']}-{config['monitor']['name']}.yaml",
+                file_name=f"{config['project']}-{config['name']}.yaml",
                 mime="text/plain",
                 icon=":material/download:",
                 use_container_width=True,

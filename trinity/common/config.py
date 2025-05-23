@@ -173,8 +173,8 @@ class AlgorithmConfig:
     algorithm_type: AlgorithmType = AlgorithmType.PPO
     # for GRPO-like algorithms, repeat each task for `repeat_times` times
     repeat_times: int = 1
-    gamma: float = 1.0
-    lam: float = 1.0
+    gamma: Optional[float] = None
+    lam: Optional[float] = None
     # TODO: add more algorithm params here
 
 
@@ -259,19 +259,20 @@ class ExplorerConfig:
 @dataclass
 class TrainerConfig:
     trainer_type: str = "verl"
-    trainer_config_path: str = ""
     save_interval: int = 0
     enable_preview: bool = True  # enable rollout preview in wandb
 
     # trainer configs
-    actor_use_kl_loss: bool = False
-    actor_kl_loss_coef: float = 0.001
-    actor_entropy_coef: float = 0.001
-    actor_grad_clip: float = 1.0
-    actor_clip_ratio: float = 0.2
+    actor_use_kl_loss: Optional[bool] = None
+    actor_kl_loss_coef: Optional[float] = None
+    actor_entropy_coef: Optional[float] = None
+    actor_grad_clip: Optional[float] = None
+    actor_clip_ratio: Optional[float] = None
     # TODO: extract more train-related params from underlying trainer engine
 
+    # Only one needs to be set for `trainer_config` and `trainer_config_path`
     trainer_config: Any = field(default_factory=dict)
+    trainer_config_path: str = ""
 
 
 @dataclass
@@ -292,7 +293,7 @@ class SynchronizerConfig:
     sync_interval: int = 1
     # waiting for `sync_timeout` seconds before timeout in `nccl` method
     sync_timeout: int = 1200
-    # wait for the lastest checkpoint to be ready
+    # wait for the lastest checkpoint to be ready  # TODO: to be used
     wait_for_checkpoint: bool = False
 
     # ! DO NOT SET, automatically calculated
@@ -338,7 +339,7 @@ class Config:
             and self.algorithm.algorithm_type != AlgorithmType.DPO
             and self.explorer.eval_interval % self.synchronizer.sync_interval != 0
         ):
-            self.buffer.eval_interval = (
+            self.explorer.eval_interval = (
                 max(self.explorer.eval_interval // self.synchronizer.sync_interval, 1)
             ) * self.synchronizer.sync_interval
             logger.warning(
