@@ -3,7 +3,7 @@
 <!-- ![trinity-rft](./docs/sphinx_doc/assets/trinity-title.png) -->
 
 <div align="center">
-  <img src="./docs/sphinx_doc/assets/trinity-title.png" alt="Trinity-RFT" style="height: 120px;">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01lvLpfw25Pl4ohGZnU_!!6000000007519-2-tps-1628-490.png" alt="Trinity-RFT" style="height: 120px;">
 </div>
 
 
@@ -61,7 +61,7 @@ These include converting raw datasets to task sets for RL, cleaning/filtering/pr
 <!-- ![design](./docs/sphinx_doc/assets/trinity-design.png) -->
 
 <div align="center">
-  <img src="./docs/sphinx_doc/assets/trinity-design.png" alt="Trinity-RFT">
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01X5jFm81peNsADtRt2_!!6000000005385-2-tps-3298-1498.png" alt="Trinity-RFT">
 </div>
 
 
