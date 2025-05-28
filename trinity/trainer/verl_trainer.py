@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
 
-from trinity.common.config import Config
+from trinity.common.config import AlgorithmConfig, Config
 from trinity.common.constants import AlgorithmType
 from trinity.common.experience import Experiences
 from trinity.trainer.trainer import TrainEngineWrapper
@@ -125,9 +125,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             ray_worker_group_cls,
         )
         self.init_workers()
-        self.algorithm_type = (
-            AlgorithmType.PPO
-        )  # TODO: initialize algorithm_type according to config
+        self.algorithm_type = AlgorithmType.PPO
         self.logger = Monitor(
             project=config.trainer.project_name,
             name=config.trainer.experiment_name,
@@ -499,11 +497,11 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
     def sync_weight(self) -> None:
         self.actor_rollout_wg.sync_weight()
 
-    def set_mode(self, algorithm_type: AlgorithmType = AlgorithmType.PPO) -> None:
-        self.actor_rollout_wg.set_mode(algorithm_type)
-        if self.algorithm_type.is_sft() and (not algorithm_type.is_sft()):
+    def set_algorithm(self, algorithm_config: AlgorithmConfig) -> None:
+        self.actor_rollout_wg.set_algorithm(algorithm_config)
+        if self.algorithm_type.is_sft() and (not algorithm_config.algorithm_type.is_sft()):
             self.sft_to_rft()
-        self.algorithm_type = algorithm_type
+        self.algorithm_type = algorithm_config.algorithm_type
 
     def sft_to_rft(self) -> None:
         # load from hdfs
