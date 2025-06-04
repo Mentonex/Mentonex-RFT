@@ -1,6 +1,6 @@
 """DPO loss function."""
 
-from typing import Any, Dict, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -19,13 +19,11 @@ class DPOLossFn(PolicyLossFn):
         self.beta = beta
         self.label_smoothing = label_smoothing
 
-    def __call__(
+    def __call__(  # type: ignore
         self,
         logprob: torch.Tensor,
-        old_logprob: torch.Tensor,
+        ref_logprob: torch.Tensor,
         action_mask: torch.Tensor,
-        advantages: torch.Tensor,
-        experiences: Any,
         **kwargs,
     ) -> Tuple[torch.Tensor, Dict]:
         chosen_logprob = logprob[::2]
@@ -35,8 +33,8 @@ class DPOLossFn(PolicyLossFn):
         chosen_logprob_sum = masked_sum(chosen_logprob, chosen_mask)
         rejected_logprob_sum = masked_sum(rejected_logprob, rejected_mask)
 
-        chosen_ref_logprob = old_logprob[::2]
-        rejected_ref_logprob = old_logprob[1::2]
+        chosen_ref_logprob = ref_logprob[::2]
+        rejected_ref_logprob = ref_logprob[1::2]
         chosen_ref_logprob_sum = masked_sum(chosen_ref_logprob, chosen_mask)
         rejected_ref_logprob_sum = masked_sum(rejected_ref_logprob, rejected_mask)
 
@@ -65,3 +63,10 @@ class DPOLossFn(PolicyLossFn):
             "beta": 0.1,
             "label_smoothing": 0.0,
         }
+
+    @property
+    def select_keys(self) -> List[str]:
+        return [
+            "ref_logprob",
+            "action_mask",
+        ]

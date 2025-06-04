@@ -3,7 +3,7 @@
 Modified from https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
@@ -30,13 +30,12 @@ class PPOPolicyLossFn(PolicyLossFn):
         assert self.clip_range_low is not None, "clip_range_low must be specified."
         assert self.clip_range_high is not None, "clip_range_high must be specified."
 
-    def __call__(
+    def __call__(  # type: ignore
         self,
         logprob: torch.Tensor,
         old_logprob: torch.Tensor,
         action_mask: torch.Tensor,
         advantages: torch.Tensor,
-        experiences: Any,
         **kwargs,
     ) -> Tuple[torch.Tensor, Dict]:
         negative_approx_kl = logprob - old_logprob
@@ -62,3 +61,11 @@ class PPOPolicyLossFn(PolicyLossFn):
         return {
             "clip_range": 0.2,
         }
+
+    @property
+    def select_keys(self) -> List[str]:
+        return [
+            "old_logprob",
+            "action_mask",
+            "advantages",
+        ]
