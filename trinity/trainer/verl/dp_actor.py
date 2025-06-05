@@ -26,14 +26,14 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from verl import DataProto
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-from verl.utils.torch_functional import logprobs_from_logits, masked_mean
+from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
 
-from trinity.algorithm import POLICY_LOSS_FN
+from trinity.algorithm import ENTROPY_LOSS_FN, KL_FN, POLICY_LOSS_FN
+from trinity.algorithm.utils import prefix_metrics
 from trinity.common.config import AlgorithmConfig
 from trinity.common.constants import AlgorithmType
-from trinity.trainer.verl import core_algos
 
 __all__ = ["DataParallelPPOActor"]
 
@@ -62,6 +62,10 @@ class DataParallelPPOActor(BasePPOActor):
         self.algorithm_type = algorithm_config.algorithm_type
         self.policy_loss_fn = POLICY_LOSS_FN.get(algorithm_config.policy_loss_fn)(
             **algorithm_config.policy_loss_fn_args
+        )
+        self.kl_loss_fn = KL_FN.get(algorithm_config.kl_loss_fn)(**algorithm_config.kl_loss_fn_args)
+        self.entropy_loss_fn = ENTROPY_LOSS_FN.get(algorithm_config.entropy_loss_fn)(
+            **algorithm_config.entropy_loss_fn_args
         )
 
     def _forward_micro_batch(self, micro_batch, temperature) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -347,6 +351,8 @@ class DataParallelPPOActor(BasePPOActor):
                 self.actor_optimizer.zero_grad()
 
                 for data in micro_batches:
+                    micro_batch_metrics = {}
+
                     # Support all hardwares
                     if isinstance(data, DataProto):
                         data = {
@@ -362,7 +368,6 @@ class DataParallelPPOActor(BasePPOActor):
                     attention_mask = data["attention_mask"]
                     response_mask = data["response_mask"]
                     assert response_mask.shape == attention_mask[:, -response_length:].shape
-                    entropy_coeff = self.config.entropy_coeff
 
                     # all return: (bsz, response_length)
                     entropy, log_prob = self._forward_micro_batch(
@@ -374,30 +379,37 @@ class DataParallelPPOActor(BasePPOActor):
                         for verl_key, value in data.items()
                         if verl_key in select_keys_verl2trinity
                     }
-                    pg_loss, metric = self.policy_loss_fn(  # type: ignore
+                    pg_loss, pg_loss_metrics = self.policy_loss_fn(  # type: ignore
                         logprob=log_prob,
                         **kwargs,
                     )
+                    prefix_metrics(
+                        src_metrics=pg_loss_metrics, prefix="actor", dst_metrics=micro_batch_metrics
+                    )
 
                     # compute entropy loss from entropy
-                    entropy_loss = verl_F.masked_mean(entropy, response_mask)
+                    entropy_loss, entropy_loss_metrics = self.entropy_loss_fn(
+                        entropy=entropy,
+                        action_mask=response_mask,
+                    )
+                    prefix_metrics(
+                        src_metrics=entropy_loss_metrics,
+                        prefix="actor",
+                        dst_metrics=micro_batch_metrics,
+                    )
 
                     # compute policy loss
-                    policy_loss = pg_loss - entropy_loss * entropy_coeff
+                    policy_loss = pg_loss - entropy_loss
 
-                    if self.config.use_kl_loss:
-                        ref_log_prob = data["ref_log_prob"]
-                        # compute kl loss
-                        kld = core_algos.kl_penalty(
-                            logprob=log_prob,
-                            ref_logprob=ref_log_prob,
-                            kl_penalty=self.config.kl_loss_type,
-                        )
-                        kl_loss = masked_mean(kld, response_mask)
-
-                        policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                        metrics["actor/kl_loss"] = kl_loss.detach().item()
-                        metrics["actor/kl_coef"] = self.config.kl_loss_coef
+                    kl_loss, kl_loss_metrics = self.kl_loss_fn.calculate_kl_loss(
+                        logprob=log_prob,
+                        ref_logprob=data["ref_log_prob"],
+                        response_mask=response_mask,
+                    )
+                    prefix_metrics(
+                        src_metrics=kl_loss_metrics, prefix="actor", dst_metrics=micro_batch_metrics
+                    )
+                    policy_loss = policy_loss + kl_loss
 
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
@@ -406,13 +418,10 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss / self.gradient_accumulation
                     loss.backward()
 
-                    data = {f"actor/{key}": value for key, value in metric.items()}
-                    # TODO: refactor entropy loss
-                    data["actor/entropy_loss"] = entropy_loss.detach().item()
-                    append_to_dict(metrics, data)
+                    append_to_dict(metrics, micro_batch_metrics)
 
                 grad_norm = self._optimizer_step()
                 data = {"actor/grad_norm": grad_norm.detach().item()}
-            append_to_dict(metrics, data)
+                append_to_dict(metrics, data)
         self.actor_optimizer.zero_grad()
         return metrics

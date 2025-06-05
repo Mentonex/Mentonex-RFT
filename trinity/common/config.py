@@ -178,11 +178,24 @@ class AlgorithmConfig:
     # If not set, use PolicyLossFn.default_args()
     policy_loss_fn_args: Optional[dict] = None
 
-    advantage_fn_type: str = "ppo_adv_fn"
+    advantage_fn: str = "ppo"
     # If not set, use AdvantageFn.default_args()
     advantage_fn_args: Optional[dict] = None
 
-    # used for SFT
+    kl_penalty_fn: str = "none"  # set to "none" to disable kl penalty in reward
+    # If not set, use kl_penalty_fn.default_args()
+    kl_penalty_fn_args: Optional[dict] = None
+
+    kl_loss_fn: str = "k2"  # set to "none" to disable kl loss
+    # If not set, use kl_loss_fn.default_args()
+    kl_loss_fn_args: Optional[dict] = None
+
+    entropy_loss_fn: str = "basic"
+    # If not set, use entropy_loss_fn.default_args()
+    entropy_loss_fn_args: Optional[dict] = None
+
+    # used for SFT warmup
+    # TODO: move this to SFT warmup
     use_token_level_loss: bool = True
 
 
@@ -271,9 +284,6 @@ class TrainerConfig:
     enable_preview: bool = True  # enable rollout preview in wandb
 
     # trainer configs
-    actor_use_kl_loss: Optional[bool] = None
-    actor_kl_loss_coef: Optional[float] = None
-    actor_entropy_coef: Optional[float] = None
     actor_grad_clip: Optional[float] = None
     actor_clip_ratio: Optional[float] = None
     # TODO: extract more train-related params from underlying trainer engine
@@ -475,7 +485,12 @@ class Config:
         self.buffer.tokenizer_path = self.model.model_path
 
     def _check_algorithm(self) -> None:
-        from trinity.algorithm import ADVANTAGE_FN, POLICY_LOSS_FN
+        from trinity.algorithm import (
+            ADVANTAGE_FN,
+            ENTROPY_LOSS_FN,
+            KL_FN,
+            POLICY_LOSS_FN,
+        )
 
         policy_fn_cls = POLICY_LOSS_FN.get(self.algorithm.policy_loss_fn)
         if policy_fn_cls is None:
@@ -483,11 +498,29 @@ class Config:
         if self.algorithm.policy_loss_fn_args is None:
             self.algorithm.policy_loss_fn_args = policy_fn_cls.default_args()
 
-        advantage_fn_cls = ADVANTAGE_FN.get(self.algorithm.advantage_fn_type)
+        advantage_fn_cls = ADVANTAGE_FN.get(self.algorithm.advantage_fn)
         if advantage_fn_cls is None:
-            raise ValueError(f"Invalid advantage_fn_type: {self.algorithm.advantage_fn_type}")
+            raise ValueError(f"Invalid advantage_fn: {self.algorithm.advantage_fn}")
         if self.algorithm.advantage_fn_args is None:
             self.algorithm.advantage_fn_args = advantage_fn_cls.default_args()
+
+        kl_loss_fn_cls = KL_FN.get(self.algorithm.kl_loss_fn)
+        if kl_loss_fn_cls is None:
+            raise ValueError(f"Invalid kl_loss_fn: {self.algorithm.kl_loss_fn}")
+        if self.algorithm.kl_loss_fn_args is None:
+            self.algorithm.kl_loss_fn_args = kl_loss_fn_cls.default_args()
+
+        kl_penalty_fn_cls = KL_FN.get(self.algorithm.kl_penalty_fn)
+        if kl_penalty_fn_cls is None:
+            raise ValueError(f"Invalid kl_penalty_fn: {self.algorithm.kl_penalty_fn}")
+        if self.algorithm.kl_penalty_fn_args is None:
+            self.algorithm.kl_penalty_fn_args = kl_penalty_fn_cls.default_args()
+
+        entropy_loss_fn_cls = ENTROPY_LOSS_FN.get(self.algorithm.entropy_loss_fn)
+        if entropy_loss_fn_cls is None:
+            raise ValueError(f"Invalid entropy_loss_fn: {self.algorithm.entropy_loss_fn}")
+        if self.algorithm.entropy_loss_fn_args is None:
+            self.algorithm.entropy_loss_fn_args = entropy_loss_fn_cls.default_args()
 
     def check_and_update(self) -> None:  # noqa: C901
         """Check and update the config."""

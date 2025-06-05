@@ -80,6 +80,10 @@ class Trainer:
                 policy_loss_fn_args={
                     "use_token_level_loss": self.config.algorithm.use_token_level_loss
                 },
+                kl_loss_fn="none",
+                kl_loss_fn_args={},
+                entropy_loss_fn="basic",
+                entropy_loss_fn_args=self.config.algorithm.entropy_loss_fn_args,
             )
             self.engine.set_algorithm(algorithm_config)
         else:

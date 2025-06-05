@@ -48,6 +48,9 @@ name: <experiment_name>
 mode: train
 algorithm:
   algorithm_type: dpo
+  kl_loss_fn: k1
+  kl_loss_fn_args:
+    kl_coef: 0.1  # value of beta in DPO
 checkpoint_root_dir: /PATH/TO/CHECKPOINT/
 model:
   model_path: /PATH/TO/MODEL/
@@ -70,8 +73,6 @@ buffer:
 trainer:
   trainer_config_path: 'examples/dpo_humanlike/train_dpo.yaml'
   save_interval: 30
-  actor_use_kl_loss: True
-  actor_kl_loss_coef: 0.1  # value of beta in DPO
 ```
 
 ### Run the Experiment

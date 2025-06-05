@@ -22,7 +22,8 @@ from verl.trainer.ppo.metric_utils import (
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
 
-from trinity.algorithm import ADVANTAGE_FN
+from trinity.algorithm import ADVANTAGE_FN, KL_FN
+from trinity.algorithm.utils import prefix_metrics
 from trinity.common.config import AlgorithmConfig, Config
 from trinity.common.constants import AlgorithmType
 from trinity.common.experience import Experiences
@@ -34,7 +35,6 @@ from trinity.trainer.verl.ray_trainer import (
     ResourcePoolManager,
     Role,
     _timer,
-    apply_kl_penalty,
     find_latest_ckpt_path,
 )
 from trinity.utils.monitor import Monitor
@@ -133,9 +133,10 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         # specify advantage function for various rft algorithms
         algo_config = global_config.algorithm
         if algo_config.algorithm_type.is_rft():
-            adv_fn_type = algo_config.advantage_fn_type
-            adv_fn_args = algo_config.advantage_fn_args
-            self.advantage_fn = ADVANTAGE_FN.get(adv_fn_type)(**adv_fn_args)
+            self.advantage_fn = ADVANTAGE_FN.get(algo_config.advantage_fn)(
+                **algo_config.advantage_fn_args
+            )
+        self.kl_fn = KL_FN.get(algo_config.kl_penalty_fn)(**algo_config.kl_penalty_fn_args)
 
         self.logger = Monitor(
             project=config.trainer.project_name,
@@ -373,17 +374,9 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
                     batch = batch.union(values)
 
             with _timer("adv", timing_raw):
-                # compute rewards. apply_kl_penalty if available
-                if not self.config.actor_rollout_ref.actor.get("use_kl_loss", False):
-                    batch, kl_metrics = apply_kl_penalty(
-                        batch,
-                        kl_ctrl=self.kl_ctrl,
-                        kl_penalty=self.config.algorithm.kl_penalty,
-                    )
-                    metrics.update(kl_metrics)
-                else:
-                    batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
-
+                # compute kl penalty
+                batch, kl_metrics = self.kl_fn.apply_kl_penalty_to_reward(batch)
+                metrics.update(prefix_metrics(kl_metrics, prefix="critic"))
                 # compute advantages, executed on the driver process
                 batch, _ = self.advantage_fn(batch)
 

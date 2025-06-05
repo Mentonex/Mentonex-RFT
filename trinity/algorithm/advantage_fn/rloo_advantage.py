@@ -11,7 +11,7 @@ from trinity.algorithm.advantage_fn import ADVANTAGE_FN, AdvantageFn
 from trinity.trainer.verl import core_algos
 
 
-@ADVANTAGE_FN.register_module("rloo_adv_fn")
+@ADVANTAGE_FN.register_module("rloo")
 class RLOOAdvantageFn(AdvantageFn):
     def __init__(self) -> None:
         pass

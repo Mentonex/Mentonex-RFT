@@ -306,12 +306,6 @@ class veRLConfig:
         self.critic.ppo_mini_batch_size = config.buffer.batch_size
         self.critic.rollout_n = self.actor_rollout_ref.rollout.n
 
-        if config.trainer.actor_use_kl_loss is not None:
-            self.actor_rollout_ref.actor.use_kl_loss = config.trainer.actor_use_kl_loss
-        if config.trainer.actor_kl_loss_coef is not None:
-            self.actor_rollout_ref.actor.kl_loss_coef = config.trainer.actor_kl_loss_coef
-        if config.trainer.actor_entropy_coef is not None:
-            self.actor_rollout_ref.actor.entropy_coeff = config.trainer.actor_entropy_coef
         if config.trainer.actor_grad_clip is not None:
             self.actor_rollout_ref.actor.grad_clip = config.trainer.actor_grad_clip
         if config.trainer.actor_clip_ratio is not None:
@@ -330,6 +324,11 @@ class veRLConfig:
         elif config.algorithm.algorithm_type in (AlgorithmType.GRPO, AlgorithmType.OPMD):
             logger.info("Setting `adv_estimator` to 'grpo' for GRPO/OPMD")
             self.algorithm.adv_estimator = AdvantageEstimator.GRPO.value
+        self.actor_rollout_ref.actor.use_kl_loss = config.algorithm.kl_loss_fn != "none"
+        self.actor_rollout_ref.actor.kl_loss_coef = config.algorithm.kl_loss_fn_args["kl_coef"]  # type: ignore
+        self.actor_rollout_ref.actor.entropy_coeff = config.algorithm.entropy_loss_fn_args[  # type: ignore
+            "entropy_coef"
+        ]
         # TODO (yanxi): it seems that adv_estimator now only affects whether use_critic is set to
         # True or False in RayPPOTrainer.__init__() (and hence in VerlPPOTrainerWrapper).
         # Need to double check whether this is indeed the case,

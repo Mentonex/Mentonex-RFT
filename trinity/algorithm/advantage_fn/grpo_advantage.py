@@ -11,7 +11,7 @@ from trinity.algorithm.advantage_fn import ADVANTAGE_FN, AdvantageFn
 from trinity.trainer.verl import core_algos
 
 
-@ADVANTAGE_FN.register_module("grpo_adv_fn")
+@ADVANTAGE_FN.register_module("grpo")
 class GRPOAdvantageFn(AdvantageFn):
     """GRPO advantage computation"""
 

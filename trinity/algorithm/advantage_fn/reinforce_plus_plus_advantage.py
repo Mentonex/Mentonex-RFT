@@ -11,7 +11,7 @@ from trinity.algorithm.advantage_fn import ADVANTAGE_FN, AdvantageFn
 from trinity.trainer.verl import core_algos
 
 
-@ADVANTAGE_FN.register_module("reinforceplusplus_adv_fn")
+@ADVANTAGE_FN.register_module("reinforceplusplus")
 class REINFORCEPLUSPLUSAdvantageFn(AdvantageFn):
     def __init__(self, gamma: float = 1.0) -> None:
         self.gamma = gamma
