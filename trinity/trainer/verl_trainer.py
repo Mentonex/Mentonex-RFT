@@ -34,7 +34,7 @@ from trinity.trainer.verl.ray_trainer import (
     pprint,
     reduce_metrics,
 )
-from trinity.utils.monitor import Monitor
+from trinity.utils.monitor import MONITOR
 
 
 class _InternalDataLoader:
@@ -128,7 +128,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         self.algorithm_type = (
             AlgorithmType.PPO
         )  # TODO: initialize algorithm_type according to config
-        self.logger = Monitor(
+        self.logger = MONITOR.get(global_config.monitor.monitor_type)(
             project=config.trainer.project_name,
             name=config.trainer.experiment_name,
             role="trainer",
