@@ -187,6 +187,11 @@ def run(config_path: str, dlc: bool = False):
     elif config.mode == "bench":
         bench(config)
 
+    if dlc:
+        from trinity.utils.dlc_utils import stop_ray_cluster
+
+        stop_ray_cluster()
+
 
 def studio(port: int = 8501):
     from streamlit.web import cli as stcli
