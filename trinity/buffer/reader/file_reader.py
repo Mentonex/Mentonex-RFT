@@ -221,6 +221,7 @@ class RolloutDataReader(BufferReader):
             workflow=workflow_class,
             format_args=self.meta.format,
             rollout_args=self.meta.rollout_args,
+            workflow_args=self.meta.workflow_args,
             is_eval=self.meta.task_type == TaskType.EVAL,
             reward_fn=reward_fn,
             raw_task=sample,
