@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 from omegaconf import OmegaConf
 
 from trinity.common.constants import (
-    AlgorithmType,
     MonitorType,
     PromptType,
     ReadStrategy,
@@ -84,7 +83,7 @@ class StorageConfig:
     rollout_args: GenerationConfig = field(default_factory=GenerationConfig)
 
     # ! DO NOT SET, automatically set from algorithm.algorithm_type
-    algorithm_type: Optional[AlgorithmType] = None
+    algorithm_type: Optional[str] = None
 
     # ! DO NOT SET, automatically set from buffer.total_epochs
     total_epochs: int = 1  # automatically set
@@ -170,33 +169,42 @@ class InferenceModelConfig:
 class AlgorithmConfig:
     """Config for algorithm."""
 
-    algorithm_type: AlgorithmType = AlgorithmType.PPO
+    algorithm_type: str = "ppo"
     # for GRPO-like algorithms, repeat each task for `repeat_times` times
     repeat_times: int = 1
 
-    policy_loss_fn: str = "ppo"
+    policy_loss_fn: Optional[str] = None  # "ppo"
     # If not set, use PolicyLossFn.default_args()
     policy_loss_fn_args: Optional[dict] = None
 
-    advantage_fn: str = "ppo"
+    advantage_fn: Optional[str] = None  # "ppo"
     # If not set, use AdvantageFn.default_args()
     advantage_fn_args: Optional[dict] = None
 
-    kl_penalty_fn: str = "none"  # set to "none" to disable kl penalty in reward
+    kl_penalty_fn: Optional[str] = None  # "none"  # set to "none" to disable kl penalty in reward
     # If not set, use kl_penalty_fn.default_args()
     kl_penalty_fn_args: Optional[dict] = None
 
-    kl_loss_fn: str = "k2"  # set to "none" to disable kl loss
+    kl_loss_fn: Optional[str] = None  # "k2"  # set to "none" to disable kl loss
     # If not set, use kl_loss_fn.default_args()
     kl_loss_fn_args: Optional[dict] = None
 
-    entropy_loss_fn: str = "basic"
+    entropy_loss_fn: Optional[str] = None  # "basic"
     # If not set, use entropy_loss_fn.default_args()
     entropy_loss_fn_args: Optional[dict] = None
 
     # used for SFT warmup
     # TODO: move this to SFT warmup
     use_token_level_loss: bool = True
+
+    # do not set
+    algorithm_manager: Optional[Any] = None
+
+    def get_current_algorithm_config(self, global_steps: int):
+        return self.algorithm_manager.get_current_algorithm_config(global_steps)
+
+    def need_save(self, global_steps: int):
+        return self.algorithm_manager.need_save(global_steps)
 
 
 @dataclass
@@ -351,32 +359,25 @@ class Config:
     def _check_interval(self) -> None:
         assert self.synchronizer.sync_interval > 0
 
-        # check eval_interval
-        if (
-            self.mode != "bench"
-            and self.algorithm.algorithm_type != AlgorithmType.DPO
-            and self.explorer.eval_interval % self.synchronizer.sync_interval != 0
-        ):
-            self.explorer.eval_interval = (
-                max(self.explorer.eval_interval // self.synchronizer.sync_interval, 1)
-            ) * self.synchronizer.sync_interval
-            logger.warning(
-                f"`eval_interval` is not a multiple of `sync_interval`; adjusted to the nearest integer={self.explorer.eval_interval}."
-            )
-
-        # check save_interval
-        if (
-            self.mode != "bench"
-            and self.algorithm.algorithm_type != AlgorithmType.DPO
-            and self.synchronizer.sync_method == SyncMethod.CHECKPOINT
-        ):
-            if self.trainer.save_interval != self.synchronizer.sync_interval:
+        if self.mode != "bench" and self.algorithm.algorithm_type != "dpo":  # TODO
+            # check eval_interval
+            if self.explorer.eval_interval % self.synchronizer.sync_interval != 0:
+                self.explorer.eval_interval = (
+                    max(self.explorer.eval_interval // self.synchronizer.sync_interval, 1)
+                ) * self.synchronizer.sync_interval
                 logger.warning(
-                    f"When `algorithm.algorithm_type` != `DPO` and `synchronizer.sync_method` == `checkpoint`, "
-                    f"`trainer.save_interval` will be set to "
-                    f"`synchronizer.sync_interval = {self.synchronizer.sync_interval}`."
+                    f"`eval_interval` is not a multiple of `sync_interval`; adjusted to the nearest integer={self.explorer.eval_interval}."
                 )
-            self.trainer.save_interval = self.synchronizer.sync_interval
+
+            # check save_interval
+            if self.synchronizer.sync_method == SyncMethod.CHECKPOINT:
+                if self.trainer.save_interval != self.synchronizer.sync_interval:
+                    logger.warning(
+                        f"When `algorithm.algorithm_type` != `dpo` and `synchronizer.sync_method` == `checkpoint`, "
+                        f"`trainer.save_interval` will be set to "
+                        f"`synchronizer.sync_interval = {self.synchronizer.sync_interval}`."
+                    )
+                self.trainer.save_interval = self.synchronizer.sync_interval
 
     def _check_buffer(self) -> None:  # noqa: C901
         # check explorer_input
@@ -440,14 +441,7 @@ class Config:
                     f"Auto set `buffer.trainer_input.experience_buffer` to {self.buffer.trainer_input.experience_buffer}"
                 )
         elif self.mode == "train":  # TODO: to be check
-            if self.algorithm.algorithm_type.is_dpo():
-                if (
-                    self.buffer.trainer_input.experience_buffer is None
-                    or not self.buffer.trainer_input.experience_buffer.path
-                ):
-                    raise ValueError(
-                        "`buffer.trainer_input.experience_buffer.path` is required when `algorithm.algorithm_type == AlgorithmType.DPO`"
-                    )
+            pass
         if self.buffer.trainer_input.experience_buffer is not None:
             self.buffer.trainer_input.experience_buffer.algorithm_type = (
                 self.algorithm.algorithm_type
@@ -468,7 +462,7 @@ class Config:
                 "`buffer.trainer_input.sft_warmup_dataset` is required when `buffer.trainer_input.sft_warmup_steps` > 0"
             )
         if self.buffer.trainer_input.sft_warmup_dataset is not None:
-            self.buffer.trainer_input.sft_warmup_dataset.algorithm_type = AlgorithmType.SFT
+            self.buffer.trainer_input.sft_warmup_dataset.algorithm_type = "sft"  # TODO
 
         # set read_batch_size / pad_token_id / tokenizer_path
         self.buffer.read_batch_size = self.buffer.batch_size * self.algorithm.repeat_times
@@ -491,6 +485,21 @@ class Config:
             KL_FN,
             POLICY_LOSS_FN,
         )
+        from trinity.algorithm.algorithm import ALGORITHM_TYPE
+
+        algorithm = ALGORITHM_TYPE.get(self.algorithm.algorithm_type)
+        algorithm.check_config(self)
+        default_config = {
+            "policy_loss_fn": "ppo",
+            "advantage_fn": "ppo",
+            "kl_penalty_fn": "none",
+            "kl_loss_fn": "k2",
+            "entropy_loss_fn": "basic",
+        }
+        default_config.update(algorithm.get_default_config())
+        for key, value in default_config.items():
+            if getattr(self.algorithm, key, None) is None:
+                setattr(self.algorithm, key, value)
 
         policy_fn_cls = POLICY_LOSS_FN.get(self.algorithm.policy_loss_fn)
         if policy_fn_cls is None:
@@ -526,11 +535,12 @@ class Config:
         """Check and update the config."""
         self._check_deprecated()
 
+        # check algorithm
+        self._check_algorithm()
+
         # check mode
         if self.mode not in ["explore", "train", "both", "bench"]:
             raise ValueError(f"Invalid mode: {self.mode}")
-        if self.algorithm.algorithm_type == AlgorithmType.DPO and self.mode == "both":
-            raise ValueError("DPO does not support `both` mode")
 
         # prepare for the checkpoint directory
         if not os.path.isabs(self.checkpoint_root_dir):
@@ -544,9 +554,6 @@ class Config:
             self.explorer.rollout_model.model_path = self.model.model_path
         if not self.model.critic_model_path:
             self.model.critic_model_path = self.model.model_path
-
-        # check algorithm
-        self._check_algorithm()
 
         # check explorer
         if (
@@ -572,17 +579,6 @@ class Config:
             logger.warning(
                 f"`{self.mode}` mode only supports checkpoint synchronization, set `synchronizer.sync_method` to `checkpoint`."
             )
-        if (
-            self.algorithm.algorithm_type == AlgorithmType.DPO
-            and self.synchronizer.sync_method != SyncMethod.CHECKPOINT
-        ):
-            self.synchronizer.sync_method = SyncMethod.CHECKPOINT
-            logger.warning(
-                "DPO only supports checkpoint synchronization, set `synchronizer.sync_method` to `checkpoint`."
-            )
-        if self.algorithm.algorithm_type == AlgorithmType.DPO and self.algorithm.repeat_times != 2:
-            self.algorithm.repeat_times = 2
-            logger.warning("DPO only supports 2 repeat times, set `algorithm.repeat_times` to 2.")
 
         self._check_interval()
 

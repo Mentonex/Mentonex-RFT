@@ -4,9 +4,8 @@ from typing import Any, Dict, List, Optional
 
 from omegaconf import OmegaConf
 
+from trinity.algorithm.algorithm import DPOAlgorithm
 from trinity.common.config import BufferConfig, Config, SynchronizerConfig
-from trinity.common.constants import AlgorithmType
-from trinity.trainer.verl.ray_trainer import AdvantageEstimator
 from trinity.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -79,7 +78,7 @@ class Actor:
     checkpoint: Checkpoint = field(default_factory=Checkpoint)
     optim: Optim = field(default_factory=Optim)
     fsdp_config: FSDPConfig = field(default_factory=FSDPConfig)
-    algorithm_type: AlgorithmType = AlgorithmType.PPO
+    algorithm_type: str = "ppo"  # TODO
     tau: float = 0.001  # strength of regularization w.r.t. old / ref policy
     opmd_baseline: str = "mean"  # mean / logavgexp, applicable to opmd
     use_uid: bool = False  # True / False, applicable to pairwise_opmd
@@ -96,7 +95,14 @@ class Ref:
 
 
 @dataclass
+class _ValKwargs:
+    do_sample: bool = False
+
+
+@dataclass
 class Rollout:
+    # do not set
+    val_kwargs: _ValKwargs = field(default_factory=_ValKwargs)
     temperature: float = 1.0
     n: int = 1  # > 1 for grpo
 
@@ -318,12 +324,6 @@ class veRLConfig:
         if adv_fn_args is not None and "lam" in adv_fn_args:
             self.algorithm.lam = adv_fn_args["lam"]
         self.actor_rollout_ref.actor.algorithm_type = config.algorithm.algorithm_type
-        if config.algorithm.algorithm_type == AlgorithmType.PPO:
-            logger.info("Setting `adv_estimator` to 'gae' for PPO")
-            self.algorithm.adv_estimator = AdvantageEstimator.GAE.value
-        elif config.algorithm.algorithm_type in (AlgorithmType.GRPO, AlgorithmType.OPMD):
-            logger.info("Setting `adv_estimator` to 'grpo' for GRPO/OPMD")
-            self.algorithm.adv_estimator = AdvantageEstimator.GRPO.value
         self.actor_rollout_ref.actor.use_kl_loss = config.algorithm.kl_loss_fn != "none"
         self.actor_rollout_ref.actor.kl_loss_coef = config.algorithm.kl_loss_fn_args["kl_coef"]  # type: ignore
         self.actor_rollout_ref.actor.entropy_coeff = config.algorithm.entropy_loss_fn_args[  # type: ignore
@@ -334,7 +334,7 @@ class veRLConfig:
         # Need to double check whether this is indeed the case,
         # and see if adv_estimator can be removed completely.
 
-        if self.actor_rollout_ref.actor.algorithm_type.is_dpo():  # for DPO
+        if isinstance(self.actor_rollout_ref.actor.algorithm_type, DPOAlgorithm):  # for DPO
             if not self.actor_rollout_ref.actor.use_kl_loss:
                 self.actor_rollout_ref.actor.use_kl_loss = True
                 logger.warning("DPO must use KL loss.")

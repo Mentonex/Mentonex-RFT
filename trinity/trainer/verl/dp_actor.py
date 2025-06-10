@@ -31,9 +31,9 @@ from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_in
 from verl.workers.actor import BasePPOActor
 
 from trinity.algorithm import ENTROPY_LOSS_FN, KL_FN, POLICY_LOSS_FN
+from trinity.algorithm.kl_fn.kl_fn import DummyKLFn
 from trinity.algorithm.utils import prefix_metrics
 from trinity.common.config import AlgorithmConfig
-from trinity.common.constants import AlgorithmType
 
 __all__ = ["DataParallelPPOActor"]
 
@@ -55,11 +55,11 @@ class DataParallelPPOActor(BasePPOActor):
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
         self.compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
-        self.algorithm_type = AlgorithmType.PPO
         self.policy_loss_fn = None
+        self.kl_loss_fn = None
+        self.entropy_loss_fn = None
 
     def set_algorithm(self, algorithm_config: AlgorithmConfig):
-        self.algorithm_type = algorithm_config.algorithm_type
         self.policy_loss_fn = POLICY_LOSS_FN.get(algorithm_config.policy_loss_fn)(
             **algorithm_config.policy_loss_fn_args
         )
@@ -299,7 +299,7 @@ class DataParallelPPOActor(BasePPOActor):
         for trinity_key in self.policy_loss_fn.select_keys:
             verl_key = select_keys_trinity2verl[trinity_key]
             select_keys.append(verl_key)
-        if self.config.use_kl_loss:
+        if not isinstance(self.kl_loss_fn, DummyKLFn):
             select_keys.append("ref_log_prob")
         select_keys = list(set(select_keys))
         batch = data.select(batch_keys=select_keys).batch
@@ -388,7 +388,7 @@ class DataParallelPPOActor(BasePPOActor):
                     )
 
                     # compute entropy loss from entropy
-                    entropy_loss, entropy_loss_metrics = self.entropy_loss_fn(
+                    entropy_loss, entropy_loss_metrics = self.entropy_loss_fn(  # type: ignore
                         entropy=entropy,
                         action_mask=response_mask,
                     )
@@ -403,11 +403,13 @@ class DataParallelPPOActor(BasePPOActor):
 
                     kl_loss, kl_loss_metrics = self.kl_loss_fn.calculate_kl_loss(
                         logprob=log_prob,
-                        ref_logprob=data["ref_log_prob"],
+                        ref_logprob=data.get("ref_log_prob", None),
                         response_mask=response_mask,
                     )
                     prefix_metrics(
-                        src_metrics=kl_loss_metrics, prefix="actor", dst_metrics=micro_batch_metrics
+                        src_metrics=kl_loss_metrics,
+                        prefix="actor",
+                        dst_metrics=micro_batch_metrics,
                     )
                     policy_loss = policy_loss + kl_loss
 
