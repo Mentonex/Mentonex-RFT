@@ -12,6 +12,7 @@ from trinity.common.constants import AlgorithmType
 from trinity.explorer.explorer import Explorer
 from trinity.trainer.trainer import Trainer
 from trinity.utils.log import get_logger
+from trinity.utils.plugin_loader import load_plugins
 
 logger = get_logger(__name__)
 
@@ -157,7 +158,8 @@ def activate_data_module(data_workflow_url: str, config_path: str):
         return
 
 
-def run(config_path: str, dlc: bool = False):
+def run(config_path: str, dlc: bool = False, plugin_dir: str = None):
+    load_plugins(plugin_dir)
     config = load_config(config_path)
     config.check_and_update()
     pprint(config)
@@ -220,6 +222,12 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Run RFT process.")
     run_parser.add_argument("--config", type=str, required=True, help="Path to the config file.")
     run_parser.add_argument(
+        "--plugin-dir",
+        type=str,
+        default=None,
+        help="Path to the directory containing plugin modules.",
+    )
+    run_parser.add_argument(
         "--dlc", action="store_true", help="Specify when running in Aliyun PAI DLC."
     )
 
@@ -229,12 +237,10 @@ def main() -> None:
         "--port", type=int, default=8501, help="The port for Trinity-Studio."
     )
 
-    # TODO: add more commands like `monitor`, `label`
-
     args = parser.parse_args()
     if args.command == "run":
         # TODO: support parse all args from command line
-        run(args.config, args.dlc)
+        run(args.config, args.dlc, args.plugin_dir)
     elif args.command == "studio":
         studio(args.port)
 

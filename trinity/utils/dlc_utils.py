@@ -103,8 +103,11 @@ def setup_ray_cluster(namespace: str):
             ).remote()
             while True:
                 if ray.get(cluster_status.running.remote()):
+                    ret = subprocess.run("ray status", shell=True, capture_output=True)
+                    print(ret.stdout.decode())
                     time.sleep(5)
                 else:
+                    logger.info("Ray cluster is not running, exiting.")
                     break
             sys.exit(0)
 
@@ -118,3 +121,4 @@ def stop_ray_cluster():
         get_if_exists=True,
     ).remote()
     ray.get(cluster_status.finish.remote())
+    logger.info("Stopping ray cluster...")
