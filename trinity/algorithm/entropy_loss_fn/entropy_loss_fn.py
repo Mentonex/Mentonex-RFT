@@ -32,12 +32,12 @@ class EntropyLossFn(ABC):
         """
 
     @classmethod
-    @abstractmethod
     def default_args(cls) -> Dict:
         """
         Returns:
             `Dict`: The default arguments for the entropy loss function.
         """
+        return {"entropy_coef": 0.0}
 
 
 @ENTROPY_LOSS_FN.register_module("basic")
@@ -58,10 +58,6 @@ class BasicEntropyLossFn(EntropyLossFn):
         entropy_loss = masked_mean(entropy, action_mask)
         return entropy_loss * self.entropy_coef, {"entropy_loss": entropy_loss.detach().item()}
 
-    @classmethod
-    def default_args(cls) -> Dict:
-        return {"entropy_coef": 0.0}
-
 
 @ENTROPY_LOSS_FN.register_module("none")
 class DummyEntropyLossFn(EntropyLossFn):
@@ -79,7 +75,3 @@ class DummyEntropyLossFn(EntropyLossFn):
         **kwargs,
     ) -> Tuple[torch.Tensor, Dict]:
         return torch.tensor(0.0), {}
-
-    @classmethod
-    def default_args(cls) -> Dict:
-        return {}
