@@ -65,8 +65,8 @@ class DummyEntropyLossFn(EntropyLossFn):
     Dummy entropy loss function.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, entropy_coef: float):
+        self.entropy_coef = entropy_coef
 
     def __call__(
         self,
