@@ -64,9 +64,9 @@ def create_inference_models(
     else:
         raise ValueError(f"Unknown engine type: {config.explorer.rollout_model.engine_type}")
 
-    main_bundles = [{"GPU": 1, "CPU": 1} for _ in range(engine_num * tensor_parallel_size)]
+    main_bundles = [{"GPU": 1} for _ in range(engine_num * tensor_parallel_size)]
     auxiliary_bundles = [
-        {"GPU": 1, "CPU": 1}
+        {"GPU": 1}
         for _ in range(
             sum(
                 [
@@ -103,6 +103,7 @@ def create_inference_models(
                 num_gpus=0 if config.explorer.rollout_model.tensor_parallel_size > 1 else 1,
                 scheduling_strategy=PlacementGroupSchedulingStrategy(
                     placement_group=pg,
+                    placement_group_capture_child_tasks=True,
                     placement_group_bundle_index=bundles_for_engine[0],
                 ),
             )
@@ -121,6 +122,7 @@ def create_inference_models(
             bundles_for_engine = allocator.allocate(model_config.tensor_parallel_size)
             model_config.enable_openai_api = True
             model_config.engine_type = "vllm_async"
+            model_config.bundle_indices = ",".join([str(bid) for bid in bundles_for_engine])
             engines.append(
                 ray.remote(vLLMAysncRolloutModel)
                 .options(
@@ -128,6 +130,7 @@ def create_inference_models(
                     num_gpus=0 if model_config.tensor_parallel_size > 1 else 1,
                     scheduling_strategy=PlacementGroupSchedulingStrategy(
                         placement_group=pg,
+                        placement_group_capture_child_tasks=True,
                         placement_group_bundle_index=bundles_for_engine[0],
                     ),
                 )
