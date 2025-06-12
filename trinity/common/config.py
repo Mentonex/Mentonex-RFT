@@ -176,9 +176,8 @@ class AlgorithmConfig:
     # for GRPO-like algorithms, repeat each task for `repeat_times` times
     repeat_times: int = 1
 
-    policy_loss_fn: Optional[str] = None  # "ppo"
-    # If not set, use PolicyLossFn.default_args()
-    policy_loss_fn_args: Optional[dict] = None
+    sample_strategy: Optional[str] = None
+    sample_strategy_args: Optional[dict] = None
 
     advantage_fn: Optional[str] = None  # "ppo"
     # If not set, use AdvantageFn.default_args()
@@ -188,11 +187,15 @@ class AlgorithmConfig:
     # If not set, use kl_penalty_fn.default_args()
     kl_penalty_fn_args: Optional[dict] = None
 
+    policy_loss_fn: Optional[str] = None  # "ppo"
+    # If not set, use PolicyLossFn.default_args()
+    policy_loss_fn_args: Optional[dict] = None
+
     kl_loss_fn: Optional[str] = None  # "k2"  # set to "none" to disable kl loss
     # If not set, use kl_loss_fn.default_args()
     kl_loss_fn_args: Optional[dict] = None
 
-    entropy_loss_fn: Optional[str] = None  # "basic"
+    entropy_loss_fn: Optional[str] = None  # "default"
     # If not set, use entropy_loss_fn.default_args()
     entropy_loss_fn_args: Optional[dict] = None
 
@@ -489,22 +492,31 @@ class Config:
             ENTROPY_LOSS_FN,
             KL_FN,
             POLICY_LOSS_FN,
+            SAMPLE_STRATEGY,
         )
         from trinity.algorithm.algorithm import ALGORITHM_TYPE
 
         algorithm = ALGORITHM_TYPE.get(self.algorithm.algorithm_type)
         algorithm.check_config(self)
         default_config = {
+            "sample_strategy": "warmup",
             "policy_loss_fn": "ppo",
             "advantage_fn": "ppo",
             "kl_penalty_fn": "none",
             "kl_loss_fn": "k2",
-            "entropy_loss_fn": "basic",
+            "entropy_loss_fn": "default",
         }
         default_config.update(algorithm.get_default_config())
         for key, value in default_config.items():
             if getattr(self.algorithm, key, None) is None:
                 setattr(self.algorithm, key, value)
+
+        # TODO: simplify the following code
+        sample_strategy_cls = SAMPLE_STRATEGY.get(self.algorithm.sample_strategy)
+        if sample_strategy_cls is None:
+            raise ValueError(f"Invalid sample_strategy: {self.algorithm.sample_strategy}")
+        if self.algorithm.sample_strategy_args is None:
+            self.algorithm.sample_strategy_args = sample_strategy_cls.default_args()
 
         policy_fn_cls = POLICY_LOSS_FN.get(self.algorithm.policy_loss_fn)
         if policy_fn_cls is None:

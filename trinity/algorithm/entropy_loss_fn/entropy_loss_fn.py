@@ -40,8 +40,8 @@ class EntropyLossFn(ABC):
         return {"entropy_coef": 0.0}
 
 
-@ENTROPY_LOSS_FN.register_module("basic")
-class BasicEntropyLossFn(EntropyLossFn):
+@ENTROPY_LOSS_FN.register_module("default")
+class DefaultEntropyLossFn(EntropyLossFn):
     """
     Basic entropy loss function.
     """

@@ -7,7 +7,6 @@ from typing import Dict
 from trinity.buffer.schema.sql_schema import DPODataModel, ExperienceModel, SFTDataModel
 from trinity.common.config import Config
 from trinity.common.constants import SyncMethod
-from trinity.common.experience import Experience, Experiences
 from trinity.utils.log import get_logger
 from trinity.utils.registry import Registry
 
@@ -30,10 +29,6 @@ class AlgorithmType(ABC, metaclass=ConstantMeta):
     use_rollout: bool
     can_balance_batch: bool
     schema: type
-
-    @classmethod
-    def gather_experience(cls, exps: list[Experience], pad_token_id: int = 0) -> Experiences:
-        return Experiences.gather_experiences(exps, pad_token_id)
 
     @classmethod
     def get_default_config(cls) -> Dict:
@@ -62,6 +57,7 @@ class SFTAlgorithm(AlgorithmType):
     @classmethod
     def get_default_config(cls) -> Dict:
         return {
+            "sample_strategy": "default",
             "policy_loss_fn": "sft",
             "kl_loss_fn": "none",
             "entropy_loss_fn": "none",
@@ -83,11 +79,12 @@ class PPOAlgorithm(AlgorithmType):
     def get_default_config(cls) -> Dict:
         return {
             "repeat_times": 1,
+            "sample_strategy": "warmup",
             "policy_loss_fn": "ppo",
             "advantage_fn": "ppo",
             "kl_penalty_fn": "none",
             "kl_loss_fn": "k2",
-            "entropy_loss_fn": "basic",
+            "entropy_loss_fn": "default",
         }
 
 
@@ -106,11 +103,12 @@ class GRPOAlgorithm(AlgorithmType):
     def get_default_config(cls) -> Dict:
         return {
             "repeat_times": 2,
+            "sample_strategy": "warmup",
             "policy_loss_fn": "ppo",
             "advantage_fn": "grpo",
             "kl_penalty_fn": "none",
             "kl_loss_fn": "k2",
-            "entropy_loss_fn": "basic",
+            "entropy_loss_fn": "default",
         }
 
 
@@ -129,11 +127,12 @@ class OPMDAlgorithm(AlgorithmType):
     def get_default_config(cls) -> Dict:
         return {
             "repeat_times": 2,
+            "sample_strategy": "warmup",
             "policy_loss_fn": "opmd",
             "advantage_fn": "opmd",
             "kl_penalty_fn": "none",
             "kl_loss_fn": "k2",
-            "entropy_loss_fn": "basic",
+            "entropy_loss_fn": "default",
         }
 
 
@@ -149,16 +148,13 @@ class DPOAlgorithm(AlgorithmType):
     schema: type = DPODataModel
 
     @classmethod
-    def gather_experience(cls, exps: list[Experience], pad_token_id: int = 0) -> Experiences:
-        return Experiences.gather_dpo_experiences(exps, pad_token_id)
-
-    @classmethod
     def get_default_config(cls) -> Dict:
         return {
             "repeat_times": 2,  # fake repeat times
+            "sample_strategy": "dpo",
             "policy_loss_fn": "dpo",
             "kl_loss_fn": "k2",
-            "entropy_loss_fn": "basic",
+            "entropy_loss_fn": "default",
         }
 
     @classmethod

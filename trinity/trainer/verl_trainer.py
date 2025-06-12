@@ -6,9 +6,8 @@ Modified from verl/trainer/ppo/ray_trainer.py
 import os
 import sys
 from pprint import pprint
-from typing import Tuple
+from typing import Dict, List, Tuple
 
-import numpy as np
 import pandas as pd
 import ray
 import torch
@@ -20,7 +19,6 @@ from verl.trainer.ppo.metric_utils import (
     reduce_metrics,
 )
 from verl.trainer.ppo.ray_trainer import (
-    DataProto,
     RayClassWithInitArgs,
     RayPPOTrainer,
     RayWorkerGroup,
@@ -33,7 +31,7 @@ from verl.trainer.ppo.ray_trainer import (
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
 
-from trinity.algorithm import ADVANTAGE_FN, KL_FN
+from trinity.algorithm import ADVANTAGE_FN, KL_FN, SAMPLE_STRATEGY
 from trinity.algorithm.algorithm import ALGORITHM_TYPE, SFTAlgorithm
 from trinity.algorithm.algorithm_manager import AlgorithmManager
 from trinity.algorithm.utils import prefix_metrics
@@ -135,7 +133,11 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             self.kl_fn = KL_FN.get(self.algorithm_config.kl_penalty_fn)(
                 **self.algorithm_config.kl_penalty_fn_args
             )
-
+        self.sample_strategy = SAMPLE_STRATEGY.get(global_config.algorithm.sample_strategy)(
+            buffer_config=global_config.buffer,
+            trainer_type=global_config.trainer.trainer_type,
+            **global_config.algorithm.sample_strategy_args,
+        )
         super().__init__(
             config,
             tokenizer,
@@ -237,9 +239,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         self.actor_rollout_wg.init_model()
 
     def reset_experiences_example_table(self):
-        self.experiences_example_table = pd.DataFrame(
-            columns=["step", "reward", "prompt", "response"]
-        )
+        self.sample_exps_to_log = []
 
     @property
     def train_step_num(self) -> int:
@@ -270,9 +270,15 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         # TODO: compute total training steps
         self.total_training_steps = self.config.trainer.total_training_steps or sys.maxsize
 
-    def train_step(self, experiences: Experiences) -> Tuple[bool, int]:
-        self.global_steps += 1
+    def train_step(self) -> Tuple[bool, int]:  # noqa C901
         metrics = {}
+        try:
+            batch, sample_metrics, exp_samples = self.sample_strategy.sample(self.global_steps + 1)
+            prefix_metrics(sample_metrics, "sample", metrics)
+        except StopIteration:
+            print("No more data to train. Stop training.")
+            return False, self.global_steps
+        self.global_steps += 1
         timing_raw = {}
         algorithm_config = self.algorithm_manager.get_current_algorithm_config(self.global_steps)
         algorithm = ALGORITHM_TYPE.get(algorithm_config.algorithm_type)
@@ -283,39 +289,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             self.algorithm = algorithm
 
         with _timer("step", timing_raw):
-            # Convert rewards to token_level_rewards
-            attention_mask = experiences.attention_masks
-            cumsum = torch.cumsum(attention_mask, dim=-1)
-            position_ids = torch.clip(cumsum - 1, 0, None).long()
-            batch_dict = {
-                "uid": np.array(experiences.run_ids),
-                "position_ids": position_ids,
-                "input_ids": experiences.tokens.long(),
-                "responses": experiences.tokens[:, experiences.prompt_length :].long(),
-                "attention_mask": attention_mask.long(),
-                "response_mask": (
-                    experiences.action_masks[:, experiences.prompt_length :].long()
-                    if hasattr(experiences, "action_masks") and experiences.action_masks is not None
-                    else attention_mask[:, experiences.prompt_length :].long()
-                ),
-            }
-            if self.algorithm.use_advantage:
-                token_level_rewards = torch.zeros(
-                    attention_mask.shape, dtype=experiences.rewards.dtype
-                )
-                eos_mask_idx = cumsum.argmax(dim=-1)
-                token_level_rewards[
-                    torch.arange(experiences.batch_size), eos_mask_idx
-                ] = experiences.rewards
-                token_level_rewards = token_level_rewards[:, experiences.prompt_length :]
-                batch_dict.update(
-                    {
-                        "token_level_scores": token_level_rewards,
-                        "old_log_probs": experiences.logprobs[:, experiences.prompt_length :],  # type: ignore
-                    }
-                )
-
-            batch = DataProto.from_single_dict(batch_dict)
             batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
 
             if self.algorithm.can_balance_batch and self.config.trainer.balance_batch:
@@ -381,7 +354,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         )
 
         if self.algorithm.use_advantage and self.config.enable_preview:  # TODO
-            self._log_experiences(experiences)
+            self._log_experiences(exp_samples)
 
         # TODO: make a canonical logger that supports various backend
         self.logger.log(data=metrics, step=self.global_steps)
@@ -419,21 +392,13 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
                 "response": [response_text],
             }
         )
-        self.experiences_example_table = pd.concat(
-            [self.experiences_example_table, new_row], ignore_index=True
-        )
+        self.sample_exps_to_log = pd.concat([self.sample_exps_to_log, new_row], ignore_index=True)
 
-    def _log_experiences(self, experiences: Experiences) -> None:
-        skip_special_tokens = False
-        reward_max_id = torch.argmax(experiences.rewards)
-        self._log_single_experience(experiences, reward_max_id, skip_special_tokens)
-
-        reward_min_id = torch.argmin(experiences.rewards)
-        self._log_single_experience(experiences, reward_min_id, skip_special_tokens)
-
+    def _log_experiences(self, samples: List[Dict]) -> None:
+        self.sample_exps_to_log.extend(samples)
         if self.global_steps % self.config.trainer.sync_freq == 0:
             self.logger.log_table(
-                "rollout_examples", self.experiences_example_table, self.global_steps
+                "rollout_examples", pd.DataFrame(self.sample_exps_to_log), self.global_steps
             )
             self.reset_experiences_example_table()
 
