@@ -33,8 +33,7 @@ class Optim:
     min_lr_ratio: Optional[float] = 0.0
     warmup_style: str = "constant"
     total_training_steps: int = -1
-    beta1: float = 0.9
-    beta2: float = 0.999
+    betas: List[float] = field(default_factory=lambda: [0.9, 0.999])
 
 
 @dataclass
@@ -82,6 +81,7 @@ class Actor:
     tau: float = 0.001  # strength of regularization w.r.t. old / ref policy
     opmd_baseline: str = "mean"  # mean / logavgexp, applicable to opmd
     use_uid: bool = False  # True / False, applicable to pairwise_opmd
+    loss_agg_mode: str = "token-mean"  # do not set
 
 
 @dataclass
@@ -100,11 +100,19 @@ class _ValKwargs:
 
 
 @dataclass
+class _MultiTurn:
+    enable: bool = False
+
+
+@dataclass
 class Rollout:
     # do not set
     val_kwargs: _ValKwargs = field(default_factory=_ValKwargs)
+    multi_turn: _MultiTurn = field(default_factory=_MultiTurn)
     temperature: float = 1.0
     n: int = 1  # > 1 for grpo
+    log_prob_micro_batch_size: Optional[int] = None
+    log_prob_micro_batch_size_per_gpu: int = 1
 
 
 @dataclass
@@ -148,6 +156,7 @@ class Critic:
     cliprange_value: float = 0.0
     checkpoint: Checkpoint = field(default_factory=Checkpoint)
     rollout_n: int = 1
+    loss_agg_mode: str = "token-mean"
 
 
 @dataclass
