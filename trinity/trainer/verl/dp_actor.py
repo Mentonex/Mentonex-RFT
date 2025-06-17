@@ -160,7 +160,12 @@ class DataParallelPPOActor(DPActor):
         }
         select_keys_trinity2verl = {value: key for key, value in select_keys_verl2trinity.items()}
         for trinity_key in self.policy_loss_fn.select_keys:
-            verl_key = select_keys_trinity2verl[trinity_key]
+            if trinity_key in select_keys_trinity2verl:
+                verl_key = select_keys_trinity2verl[trinity_key]
+            else:
+                verl_key = trinity_key
+                select_keys_verl2trinity.update({verl_key: trinity_key})
+                select_keys_trinity2verl.update({trinity_key: verl_key})
             select_keys.append(verl_key)
         if not isinstance(self.kl_loss_fn, DummyKLFn):
             select_keys.append("ref_log_prob")
