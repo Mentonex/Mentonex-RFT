@@ -69,7 +69,6 @@ class SFTDataReader(BufferReader):
         self.dataset = _HFBatchReader(
             load_dataset(meta.path, name=subset_name, split=self.split)
         )  # TODO: support resume
-        self.data_iter = self.dataset.iter(self.read_batch_size, drop_last_batch=True)
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(config.tokenizer_path)
 
     def read(
@@ -146,7 +145,6 @@ class DPODataReader(BufferReader):
         self.dataset = _HFBatchReader(
             load_dataset(meta.path, name=subset_name, split=self.split)
         )  # TODO: support resume
-        self.data_iter = self.dataset.iter(self.read_batch_size, drop_last_batch=True)
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(config.tokenizer_path)
 
     def _get_assistant_message(self, item) -> dict:
