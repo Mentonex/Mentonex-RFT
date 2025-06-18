@@ -85,6 +85,7 @@ class Explorer:
             f"world_size={world_size}, rank_offset={base_offset}"
         )
         self.state_dict_meta = state_dict_meta
+        # TODO: save state_dict in models
         refs = [
             model.init_process_group.remote(
                 master_address=master_address,
