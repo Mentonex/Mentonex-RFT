@@ -3,7 +3,7 @@
 Modified from https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 
@@ -15,10 +15,12 @@ from trinity.algorithm.utils import masked_mean
 class PPOPolicyLossFn(PolicyLossFn):
     def __init__(
         self,
+        backend: str = "verl",
         clip_range: Optional[float] = None,
         clip_range_low: Optional[float] = None,
         clip_range_high: Optional[float] = None,
     ) -> None:
+        super().__init__(backend=backend)
         if clip_range_low is None:
             self.clip_range_low = clip_range
         else:
@@ -61,11 +63,3 @@ class PPOPolicyLossFn(PolicyLossFn):
         return {
             "clip_range": 0.2,
         }
-
-    @property
-    def select_keys(self) -> List[str]:
-        return [
-            "old_logprob",
-            "action_mask",
-            "advantages",
-        ]

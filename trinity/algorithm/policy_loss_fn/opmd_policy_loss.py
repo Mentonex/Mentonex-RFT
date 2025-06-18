@@ -1,6 +1,6 @@
 """OPMD policy loss function."""
 
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import torch
 
@@ -10,13 +10,13 @@ from trinity.algorithm.utils import masked_mean
 
 @POLICY_LOSS_FN.register_module("opmd")
 class OPMDPolicyLossFn(PolicyLossFn):
-    def __init__(self, tau: float = 1.0) -> None:
+    def __init__(self, backend: str = "verl", tau: float = 1.0) -> None:
+        super().__init__(backend=backend)
         self.tau = tau
 
     def __call__(  # type: ignore
         self,
         logprob: torch.Tensor,
-        old_logprob: torch.Tensor,  # NOT USED!
         action_mask: torch.Tensor,
         advantages: torch.Tensor,
         **kwargs,
@@ -29,11 +29,3 @@ class OPMDPolicyLossFn(PolicyLossFn):
     @classmethod
     def default_args(cls) -> Dict:
         return {"tau": 1.0}
-
-    @property
-    def select_keys(self) -> List[str]:
-        return [
-            "old_logprob",
-            "action_mask",
-            "advantages",
-        ]

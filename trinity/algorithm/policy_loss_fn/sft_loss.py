@@ -1,6 +1,6 @@
 """SFT loss function."""
 
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import torch
 
@@ -10,7 +10,8 @@ from trinity.algorithm.utils import masked_mean
 
 @POLICY_LOSS_FN.register_module("sft")
 class SFTLossFn(PolicyLossFn):
-    def __init__(self, use_token_level_loss: bool = True) -> None:
+    def __init__(self, backend: str = "verl", use_token_level_loss: bool = True) -> None:
+        super().__init__(backend=backend)
         self.use_token_level_loss = use_token_level_loss
 
     def __call__(  # type: ignore
@@ -30,7 +31,3 @@ class SFTLossFn(PolicyLossFn):
         return {
             "use_token_level_loss": True,
         }
-
-    @property
-    def select_keys(self) -> List[str]:
-        return ["action_mask"]

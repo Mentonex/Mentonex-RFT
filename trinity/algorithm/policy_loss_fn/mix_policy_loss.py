@@ -1,6 +1,6 @@
 """Mix policy loss function."""
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 
@@ -26,27 +26,29 @@ class MIXPolicyLossFn(PolicyLossFn):
 
     def __init__(
         self,
+        backend: str = "verl",
         mu: float = 0.1,
         clip_range: Optional[float] = None,
         clip_range_low: Optional[float] = None,
         clip_range_high: Optional[float] = None,
         use_dynamic_bsz: Optional[bool] = None,
-        repeat_times: Optional[int] = None,
-        ppo_mini_batch_size: Optional[int] = None,
-        ppo_micro_batch_size_per_gpu: Optional[int] = None,
-        ngpus_trainer: Optional[int] = None,
-        read_batch_size_usual: Optional[int] = None,
-        read_batch_size_expert: Optional[int] = None,
+        repeat_times: int = 1,
+        ppo_mini_batch_size: int = 1,
+        ppo_micro_batch_size_per_gpu: int = 1,
+        ngpus_trainer: int = 1,
+        read_batch_size_usual: int = 1,
+        read_batch_size_expert: int = 1,
         use_token_level_loss_in_sft: bool = True,
     ) -> None:
+        super().__init__(backend=backend)
         self.mu = mu
         self.use_dynamic_bsz = use_dynamic_bsz
-        self.experience_per_gpu = ppo_mini_batch_size * repeat_times // ngpus_trainer  # type: ignore
+        self.experience_per_gpu = ppo_mini_batch_size * repeat_times // ngpus_trainer
         self.gradient_accumulation = (
-            ppo_mini_batch_size * repeat_times // ppo_micro_batch_size_per_gpu  # type: ignore
+            ppo_mini_batch_size * repeat_times // ppo_micro_batch_size_per_gpu
         )
-        self.read_batch_size_usual = read_batch_size_usual
-        self.read_batch_size_expert = read_batch_size_expert
+        self.read_batch_size_usual = read_batch_size_usual // ngpus_trainer
+        self.read_batch_size_expert = read_batch_size_expert // ngpus_trainer
         self.grpo_loss_fn = PPOPolicyLossFn(
             clip_range=clip_range,
             clip_range_low=clip_range_low,
@@ -60,11 +62,9 @@ class MIXPolicyLossFn(PolicyLossFn):
         old_logprob: torch.Tensor,
         action_mask: torch.Tensor,
         advantages: torch.Tensor,
+        is_expert_mask: torch.Tensor,
         **kwargs,
     ) -> Tuple[torch.Tensor, Dict]:
-        is_expert_mask = kwargs.get("is_expert_mask", None)
-        if is_expert_mask is None:
-            raise ValueError("is_expert_mask is required in MIX")
         assert (
             len(is_expert_mask) == logprob.shape[0]
         ), f"Error: {len(is_expert_mask)=} != {logprob.shape[0]=}"
@@ -127,7 +127,3 @@ class MIXPolicyLossFn(PolicyLossFn):
             "mu": 0.1,
             "clip_range": 0.2,
         }
-
-    @property
-    def select_keys(self) -> List[str]:
-        return ["old_logprob", "action_mask", "advantages", "is_expert_mask"]

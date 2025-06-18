@@ -27,7 +27,6 @@ cluster:
 buffer:
   total_epochs: 1
   batch_size: 40
-  explore_batch_size: 36
   max_retry_times: 3
   max_retry_interval: 1
   explorer_input:
@@ -82,7 +81,7 @@ synchronizer:
   sync_timeout: 1200
 trainer:
   trainer_type: 'verl'
-  trainer_config_path: 'examples/mix_math/train_math.yaml'
+  trainer_config_path: 'examples/mix_math/train_mix_math.yaml'
   save_interval: 50
 monitor:
   monitor_type: wandb

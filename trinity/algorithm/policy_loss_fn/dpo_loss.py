@@ -1,6 +1,6 @@
 """DPO loss function."""
 
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -13,9 +13,11 @@ from trinity.algorithm.utils import masked_sum
 class DPOLossFn(PolicyLossFn):
     def __init__(
         self,
+        backend: str = "verl",
         beta: float = 0.1,
         label_smoothing: float = 0.0,
     ) -> None:
+        super().__init__(backend=backend)
         self.beta = beta
         self.label_smoothing = label_smoothing
 
@@ -63,10 +65,3 @@ class DPOLossFn(PolicyLossFn):
             "beta": 0.1,
             "label_smoothing": 0.0,
         }
-
-    @property
-    def select_keys(self) -> List[str]:
-        return [
-            "ref_logprob",
-            "action_mask",
-        ]
