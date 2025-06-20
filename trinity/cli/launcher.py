@@ -2,6 +2,7 @@
 import argparse
 import os
 import sys
+import traceback
 from pathlib import Path
 from pprint import pprint
 
@@ -18,44 +19,41 @@ logger = get_logger(__name__)
 
 def bench(config: Config) -> None:
     """Evaluate model."""
-    explorer = Explorer.remote(config)
+    explorer = ray.remote(Explorer).options(name="explorer").remote(config)
     try:
         ray.get(explorer.prepare.remote())
         ray.get(explorer.benchmark.remote())
         logger.info("Benchmark finished.")
         ray.get(explorer.shutdown.remote())
-    except Exception as e:
-        logger.error(f"Benchmark failed: {e}")
-        raise e
+    except Exception:
+        error_msg = traceback.format_exc()
+        logger.error(f"Benchmark failed:\n{error_msg}")
 
 
 def explore(config: Config) -> None:
     """Run explorer."""
-    explorer = Explorer.remote(config)
     try:
+        explorer = ray.remote(Explorer).options(name="explorer").remote(config)
         ray.get(explorer.prepare.remote())
         ray.get(explorer.sync_weight.remote())
         ray.get(explorer.explore.remote())
-        logger.info("Explore finished.")
         ray.get(explorer.shutdown.remote())
-    except Exception as e:
-        logger.error(f"Explore failed: {e}")
-        raise e
+    except Exception:
+        error_msg = traceback.format_exc()
+        logger.error(f"Explorer failed:\n{error_msg}")
 
 
 def train(config: Config) -> None:
     """Run trainer."""
-
-    trainer = Trainer.remote(config)
-    ray.get(trainer.prepare.remote())
-
     try:
+        trainer = ray.remote(Trainer).options(name="trainer").remote(config)
+        ray.get(trainer.prepare.remote())
+        ray.get(trainer.sync_weight.remote())
         ray.get(trainer.train.remote())
-        logger.info("Train finished.")
         ray.get(trainer.shutdown.remote())
-    except Exception as e:
-        logger.error(f"Train failed {e}.")
-        raise e
+    except Exception:
+        error_msg = traceback.format_exc()
+        logger.error(f"Trainer failed:\n{error_msg}")
 
 
 def both(config: Config) -> None:
@@ -68,54 +66,30 @@ def both(config: Config) -> None:
     the latest step. The specific number of experiences may vary for different
     algorithms and tasks.
     """
-    explorer = Explorer.remote(config)
-    trainer = Trainer.remote(config)
+    explorer = ray.remote(Explorer).options(name="explorer").remote(config)
+    trainer = ray.remote(Trainer).options(name="trainer").remote(config)
     ray.get([explorer.__ray_ready__.remote(), trainer.__ray_ready__.remote()])
-    logger.info("Setup explorer and trainer finished.")
     ray.get(
         [
             explorer.prepare.remote(),
             trainer.prepare.remote(),
         ]
     )
-    # sync weight before training start
-    ray.get([explorer.sync_weight.remote(), trainer.sync_weight.remote()])
-
-    while True:
-        try:
-            ref_explore = explorer.explore_one_period.remote()
-            ref_train = trainer.train_one_period.remote()
-            explore_continue, explore_step_num = ray.get(ref_explore)
-            train_continue, train_step_num = ray.get(ref_train)
-            if not explore_continue:
-                # If explore finished, the trainer may not have enough experiences to continue,
-                # which will cause the trainer be blocked. So we stop the training process
-                # immediately.
-                # TODO: use a more elegant way to stop the training process.
-                logger.info("Explorer finished, stopping...")
-                break
-            if not train_continue:
-                logger.info("Trainer finished, stopping...")
-                break
-            ray.get([explorer.sync_weight.remote(), trainer.sync_weight.remote()])
-            logger.info("Model weight synchronized.")
-        except Exception as e:
-            logger.error(e)
-            logger.error("Training stopped due to exception.")
-            raise e
-        if explore_step_num % config.explorer.eval_interval == 0:
-            try:
-                ray.get(explorer.eval.remote())
-                logger.info("Evaluation finished.")
-            except Exception as e:
-                logger.error(e)
-                logger.error("Evaluation failed.")
-                raise e
-        ray.get(explorer.flush_log.remote(step=explore_step_num))
-        ray.get(trainer.flush_log.remote(step=train_step_num))
-
-    ray.get(explorer.shutdown.remote())
-    ray.get(trainer.shutdown.remote())
+    ray.get(
+        [
+            explorer.sync_weight.remote(),
+            trainer.sync_weight.remote(),
+        ]
+    )
+    _, _ = ray.wait(
+        [
+            explorer.explore.remote(),
+            trainer.train.remote(),
+        ],
+        num_returns=1,
+    )
+    explorer.shutdown.remote(),
+    trainer.shutdown.remote(),
 
 
 def activate_data_module(data_workflow_url: str, config_path: str):

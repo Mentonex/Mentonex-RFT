@@ -1,31 +1,23 @@
 # -*- coding: utf-8 -*-
 """
 Trainer Class
-This file is modified from verl.trainer.main_ppo.py
-And is a reproduction code of Jiayi-Pan/TinyZero.
-
-Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
+from __future__ import annotations
+
 import os
 from abc import ABC, abstractmethod
-from typing import Tuple
 
-import ray
-
-from trinity.algorithm.algorithm_manager import AlgorithmManager
 from trinity.common.config import Config
 from trinity.common.constants import SyncMethod
 from trinity.utils.log import get_logger
 
 
-@ray.remote(name="trainer")
 class Trainer:
     """Consume the experience and train the model."""
 
     def __init__(self, config: Config) -> None:
         self.config = config
         self.logger = get_logger(__name__)
-        self.algorithm_manager = AlgorithmManager(config)
         self.engine = get_trainer_wrapper(config)
 
     def prepare(self) -> None:
@@ -35,23 +27,18 @@ class Trainer:
     def train(self):
         """Train the model."""
         while True:
-            train_status, _ = self.train_step()
-            if not train_status:
+            try:
+                train_continue = self.train_step()
+                if self.need_sync():
+                    self.sync_weight()
+                if not train_continue:
+                    break
+            except Exception as e:
+                self.logger.error(f"Error in Trainer: {e}")
                 break
+        self.logger.info("--------------------\n> Trainer finished.\n--------------------\n")
 
-    def train_one_period(self) -> Tuple[bool, int]:
-        """Train for one period. Each period contains `sync_interval` steps.
-        Returns:
-            train_status: Whether to continue training.
-            train_step_num: The number of training steps"""
-        for _ in range(self.config.synchronizer.sync_interval):
-            train_status, train_step_num = self.train_step()
-            if not train_status:
-                return False, train_step_num
-        self.logger.info(f"Train step {train_step_num} finished.")
-        return True, train_step_num
-
-    def train_step(self) -> Tuple[bool, int]:
+    def train_step(self) -> bool:
         """Train one step.
 
         Returns:
@@ -59,9 +46,14 @@ class Trainer:
         """
         return self.engine.train_step()
 
+    def need_sync(self) -> bool:
+        """Whether to sync the model weight."""
+        return self.engine.train_step_num % self.config.synchronizer.sync_interval == 0
+
     def sync_weight(self) -> None:
         """Sync the model weight."""
         if self.config.synchronizer.sync_method == SyncMethod.NCCL:
+            self.logger.info(f"Trainer synchronizing weights at step {self.engine.train_step_num}.")
             self.engine.sync_weight()
 
     def flush_log(self, step: int) -> None:
@@ -90,7 +82,7 @@ class TrainEngineWrapper(ABC):
         """Get the current training step number."""
 
     @abstractmethod
-    def train_step(self) -> Tuple[bool, int]:
+    def train_step(self) -> bool:
         """Training."""
 
     @abstractmethod

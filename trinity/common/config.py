@@ -319,8 +319,10 @@ class SynchronizerConfig:
     sync_method: SyncMethod = SyncMethod.NCCL
     # sync weights every `sync_interval` steps
     sync_interval: int = 1
+    # allow explorer to run `sync_offset` steps before sync
+    sync_offset: int = 0
     # waiting for `sync_timeout` seconds before timeout in `nccl` method
-    sync_timeout: int = 1200
+    sync_timeout: int = 1800
     # wait for the lastest checkpoint to be ready  # TODO: to be used
     wait_for_checkpoint: bool = False
 

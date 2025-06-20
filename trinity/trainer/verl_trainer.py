@@ -6,7 +6,7 @@ Modified from verl/trainer/ppo/ray_trainer.py
 import os
 import sys
 from pprint import pprint
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import pandas as pd
 import ray
@@ -285,14 +285,14 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         # TODO: compute total training steps
         self.total_training_steps = self.config.trainer.total_training_steps or sys.maxsize
 
-    def train_step(self) -> Tuple[bool, int]:  # noqa C901
+    def train_step(self) -> bool:  # noqa C901
         metrics = {}
         try:
             batch, sample_metrics, exp_samples = self.sample_strategy.sample(self.global_steps + 1)
             prefix_metrics(sample_metrics, "sample", metrics)
         except StopIteration:
             print("No more data to train. Stop training.")
-            return False, self.global_steps
+            return False
         self.global_steps += 1
         timing_raw = {}
         algorithm_config = self.algorithm_manager.get_current_algorithm_config(self.global_steps)
@@ -382,7 +382,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             ):
                 with _timer("save_checkpoint", timing_raw):
                     self._save_checkpoint()
-        return train_status, self.global_steps
+        return train_status
 
     def _log_single_experience(
         self, experiences: Experiences, idx: int, skip_special_tokens: bool

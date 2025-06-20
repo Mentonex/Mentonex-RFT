@@ -606,6 +606,8 @@ class ActorRolloutRefWorker(Worker):
                             continue
                         torch.distributed.broadcast(param, 0, group=self._model_update_group)
                 param = None
+            torch.distributed.barrier()
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

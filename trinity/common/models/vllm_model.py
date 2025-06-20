@@ -100,7 +100,6 @@ class vLLMRolloutModel(InferenceModel):
         update_with_checkpoint: bool = True,
         state_dict_meta: dict = None,
     ):
-        self.state_dict_meta = state_dict_meta
         return self.llm.collective_rpc(
             "init_process_group",
             args=(
@@ -112,11 +111,9 @@ class vLLMRolloutModel(InferenceModel):
                 backend,
                 timeout,
                 update_with_checkpoint,
+                state_dict_meta,
             ),
         )
-
-    def update_weight(self, name, dtype, shape, empty_cache=False):
-        return self.llm.collective_rpc("update_weight", args=(name, dtype, shape, empty_cache))
 
     def reset_prefix_cache(self):
         self.llm.llm_engine.reset_prefix_cache()
@@ -279,11 +276,9 @@ class vLLMRolloutModel(InferenceModel):
 
     def sync_model(self, update_weight_args_list: Optional[List[Tuple]] = None) -> bool:
         """Sync model weights to vLLM."""
-        if self.state_dict_meta is None:
-            self.state_dict_meta = update_weight_args_list
-        with self.lock:
-            for args in self.state_dict_meta:
-                self.llm.collective_rpc("update_weight", args=args)
+        if update_weight_args_list is not None:
+            self._collective_rpc("set_state_dict_meta", args=(update_weight_args_list,))
+        self._collective_rpc("update_weight")
         self.logger.info("Sync model weights to vLLM successfully.")
         self.ckp_version += 1
         return True

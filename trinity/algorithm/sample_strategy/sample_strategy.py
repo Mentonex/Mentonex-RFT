@@ -12,26 +12,40 @@ SAMPLE_STRATEGY = Registry("sample_strategy")
 
 
 class SampleStrategy(ABC):
-    def __init__(self, buffer_config: BufferConfig, trainer_type: str, **kwargs):
+    def __init__(self, buffer_config: BufferConfig, trainer_type: str, **kwargs) -> None:
         self.pad_token_id = buffer_config.pad_token_id
         self.trainer_type = trainer_type
 
     @abstractmethod
     def sample(self, step: int) -> Tuple[Any, Dict, List]:
-        """Sample experiences from buffer.
+        """Sample data from buffer.
 
         Args:
             step (`int`): The step number of current step.
 
         Returns:
-            `Any`: The sampled experiences.
+            `Any`: The sampled data.
             `Dict`: Metrics for logging.
-            `List`: Representative experiences for logging.
+            `List`: Representative data for logging.
+        """
+
+    # Experimental API
+    @abstractmethod
+    def warmup_state(self, step: int) -> Tuple[bool, bool]:
+        """Check the warmup state of the current step.
+
+        Args:
+            step (`int`): The step number of current step.
+
+        Returns:
+            `bool`: Current step is in warmup or not.
+            `bool`: Warmup is finished on this step or not.
         """
 
     @classmethod
+    @abstractmethod
     def default_args(cls) -> dict:
-        return {}
+        """Get the default arguments of the sample strategy."""
 
 
 @SAMPLE_STRATEGY.register_module("warmup")
@@ -70,6 +84,13 @@ class WarmupSampleStrategy(SampleStrategy):
         else:
             raise NotImplementedError(f"backend {self.trainer_type} is not supported")
 
+    def warmup_state(self, step: int) -> Tuple[bool, bool]:
+        return step <= self.sft_warmup_steps, step == self.sft_warmup_steps
+
+    @classmethod
+    def default_args(cls) -> dict:
+        return {}
+
 
 @SAMPLE_STRATEGY.register_module("default")
 class DefaultSampleStrategy(SampleStrategy):
@@ -92,6 +113,13 @@ class DefaultSampleStrategy(SampleStrategy):
             return data, metrics, repr_samples
         else:
             raise NotImplementedError(f"backend {self.trainer_type} is not supported")
+
+    def warmup_state(self, step: int) -> Tuple[bool, bool]:
+        return False, False
+
+    @classmethod
+    def default_args(cls) -> dict:
+        return {}
 
 
 @SAMPLE_STRATEGY.register_module("dpo")

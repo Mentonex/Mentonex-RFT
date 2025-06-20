@@ -16,7 +16,7 @@ actor_rollout_ref:
     shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
     checkpoint:
-      contents: ['model', 'hf_model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      contents: ["model", "optimizer", "extra"]  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
     optim:
       lr: 1e-6
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
@@ -72,6 +72,8 @@ critic:
   shuffle: ${actor_rollout_ref.actor.shuffle}
   grad_clip: 1.0
   cliprange_value: 0.5
+  checkpoint:
+    contents: ["model", "optimizer", "extra"]  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
 
 trainer:
   balance_batch: True
