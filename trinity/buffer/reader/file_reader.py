@@ -67,7 +67,7 @@ class SFTDataReader(BufferReader):
         self.response_key = meta.format.response_key
         self.read_batch_size = config.read_batch_size
         self.dataset = _HFBatchReader(
-            load_dataset(meta.path, name=subset_name, split=self.split),
+            load_dataset(meta.path, name=subset_name, split=self.split, trust_remote_code=True),
             max_epoch=meta.total_epochs,
         )  # TODO: support resume
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(config.tokenizer_path)
@@ -144,7 +144,7 @@ class DPODataReader(BufferReader):
         self.rejected_key = meta.format.rejected_key
         self.read_batch_size = config.read_batch_size
         self.dataset = _HFBatchReader(
-            load_dataset(meta.path, name=subset_name, split=self.split),
+            load_dataset(meta.path, name=subset_name, split=self.split, trust_remote_code=True),
             max_epoch=meta.total_epochs,
         )  # TODO: support resume
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(config.tokenizer_path)
@@ -216,7 +216,7 @@ class RolloutDataReader(BufferReader):
         self.epoch = 0
         datasets.disable_caching()
         self.dataset = _HFBatchReader(
-            load_dataset(meta.path, name=subset_name, split=self.split),
+            load_dataset(meta.path, name=subset_name, split=self.split, trust_remote_code=True),
             max_epoch=self.meta.total_epochs if meta.task_type == TaskType.EXPLORE else 1,
             offset=self.meta.index,
         )
@@ -261,3 +261,23 @@ class RolloutDataReader(BufferReader):
             )
             tasks.append(task)
         return tasks
+
+
+@FILE_READERS.register_module("raw")
+class RawDataReader(BufferReader):
+    def __init__(self, meta: StorageConfig, config: Optional[BufferConfig]):
+        self.returned = False
+        self.dataset = load_dataset(
+            meta.path, name=meta.subset_name, split=meta.split, trust_remote_code=True
+        )
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def read(
+        self, batch_size: Optional[int] = None, strategy: Optional[ReadStrategy] = None
+    ) -> List:
+        if self.returned:
+            raise StopIteration
+        self.returned = True
+        return self.dataset.to_list()
