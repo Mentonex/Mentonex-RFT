@@ -5,6 +5,7 @@ from typing import List, Optional
 import datasets
 import transformers
 from datasets import Dataset, load_dataset
+from tqdm import tqdm
 
 from trinity.algorithm.algorithm import DPOAlgorithm, SFTAlgorithm
 from trinity.buffer.buffer_reader import BufferReader
@@ -35,11 +36,20 @@ class _HFBatchReader:
         for _ in range(self.current_offset):
             next(self.iter)
 
+        # Initialize tqdm progress bar
+        self.total_steps = self.dataset_size * self.max_epoch
+        self.progress_bar = tqdm(
+            total=self.total_steps,
+            initial=self.current_epoch * self.dataset_size + self.current_offset,
+            desc="Dataset Progressing",
+        )
+
     def read_batch(self, batch_size: int) -> List:
         batch = []
 
         while len(batch) < batch_size:
             try:
+                self.progress_bar.update(1)
                 item = next(self.iter)
                 batch.append(item)
                 self.current_offset += 1
@@ -49,7 +59,9 @@ class _HFBatchReader:
                 self.current_offset = 0
 
                 if self.current_epoch >= self.max_epoch:
+                    self.progress_bar.close()
                     raise StopIteration
+                # Step to the next epoch
                 self.iter = iter(self.dataset)
         return batch
 
