@@ -4,19 +4,6 @@ checkpoint_root_dir: /PATH/TO/CHECKPOINT/
 algorithm:
   algorithm_type: grpo
   repeat_times: 8
-data_processor:
-  # basic info
-  source_data_path: 'openai/gsm8k'
-  # data active iterator related
-  dj_process_desc: 'Please compute difficulty scores for these math questions.'
-  agent_model_name: 'qwen-max'
-  agent_model_config:
-    config_name: 'my-qwen-instruction'
-    model_type: 'dashscope_chat'
-    model_name: 'qwen2.5-72b-instruct'
-  clean_strategy: 'iterative'
-  # db related
-  db_url: ''
 
 model:
   model_path: /PATH/TO/MODEL/
@@ -41,9 +28,7 @@ buffer:
         prompt_key: 'question'
         response_key: 'answer'
       rollout_args:
-        n: 8
         temperature: 1.0
-        logprobs: 0
     eval_tasksets:
     - name: gsm8k-eval
       storage_type: file

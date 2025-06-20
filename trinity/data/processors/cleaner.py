@@ -36,6 +36,7 @@ class DataCleaner(BaseDataProcessor):
         clean_strategy: str = "iterative",
         min_size_ratio: PositiveFloat = None,
         data_dist: str = "gaussian",
+        op_weights: dict = None,
         **kwargs,
     ):
         """
@@ -54,6 +55,7 @@ class DataCleaner(BaseDataProcessor):
         self.min_size_ratio = min_size_ratio
         self.data_dist = data_dist
         self.op_name_to_stats_key = {}
+        self.op_weights = op_weights
 
     def keep_cleaner_op_cfg(self, dj_cfg):
         """Only consider cleaner op in data-juicer configs."""
@@ -112,7 +114,7 @@ class DataCleaner(BaseDataProcessor):
         update_record = {}
         for process in exe_cfg.process:
             op_name, args = list(process.items())[0]
-            op_weight = args["op_weight"]
+            op_weight = self.op_weights.get(op_name, 1)
             update_record[op_name] = {}
 
             temp_args = copy.deepcopy(args)
@@ -164,7 +166,7 @@ class DataCleaner(BaseDataProcessor):
         else:
             logger.info("Executing Data-Juicer analyzer...")
             analyzer = Analyzer(self.dj_cfg)
-            analyzer.run(dataset)
+            analyzer.run(dataset, skip_export=True)
             df = analyzer.overall_result
             mean_series = df[df.index == "mean"]
             stats_key_to_mean = mean_series.iloc[0, :].to_dict()

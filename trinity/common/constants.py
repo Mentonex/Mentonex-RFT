@@ -8,6 +8,9 @@ logger = get_logger(__name__)
 
 # names
 
+EXPLORER_NAME = "explorer"
+TRAINER_NAME = "trainer"
+
 ROLLOUT_WEIGHT_SYNC_GROUP_NAME = "rollout_weight_sync"
 
 
@@ -65,34 +68,6 @@ class StorageType(CaseInsensitiveEnum):
     FILE = "file"
 
 
-class AlgorithmType(CaseInsensitiveEnum):
-    """Algorithm Type."""
-
-    SFT = "sft"
-    PPO = "ppo"
-    GRPO = "grpo"
-    OPMD = "opmd"
-    PAIRWISE_OPMD = "pairwise_opmd"
-    DPO = "dpo"
-
-    def is_rft(self) -> bool:
-        """Check if the algorithm is RFT."""
-        return self in [
-            AlgorithmType.PPO,
-            AlgorithmType.GRPO,
-            AlgorithmType.OPMD,
-            AlgorithmType.PAIRWISE_OPMD,
-        ]
-
-    def is_sft(self) -> bool:
-        """Check if the algorithm is SFT."""
-        return self == AlgorithmType.SFT
-
-    def is_dpo(self) -> bool:
-        """Check if the algorithm is DPO."""
-        return self == AlgorithmType.DPO
-
-
 class MonitorType(CaseInsensitiveEnum):
     """Monitor Type."""
 
@@ -120,3 +95,11 @@ class SyncMethod(CaseInsensitiveEnum, metaclass=SyncMethodEnumMeta):
 
     NCCL = "nccl"
     CHECKPOINT = "checkpoint"
+
+
+class RunningStatus(Enum):
+    """Running status of explorer and trainer."""
+
+    RUNNING = "running"
+    WAITING_SYNC = "waiting_sync"
+    STOPPED = "stopped"

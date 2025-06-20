@@ -1,14 +1,14 @@
 import os
 import traceback
+from numbers import Number
 from typing import Any, Dict, List
 
 import ray
 
-from trinity.common.config import Config
+from trinity.common.config import BufferConfig, DataPipelineConfig
 from trinity.data.controllers.default_ops import DIMENSION_STATS_KEYS
 from trinity.data.controllers.task_parser import DataTaskParser
 from trinity.data.core.dataset import RftDataset
-from trinity.data.core.dataset_db import RftDatasetDB
 from trinity.data.processors.cleaner import DataCleaner
 from trinity.data.processors.human_annotator import DataHumanAnnotator
 from trinity.data.processors.synthesizer import DataSynthesizer
@@ -21,42 +21,39 @@ class DataActiveIterator:
 
     def __init__(
         self,
-        config: Config,
+        config: DataPipelineConfig,
+        buffer_config: BufferConfig,
     ):
         self.config = config
-        self.data_config = config.data
-        if (
-            self.data_config.agent_model_name is not None
-            and self.data_config.agent_model_config is not None
-        ):
+        self.buffer_config = buffer_config
+        if self.config.agent_model_name is not None and self.config.agent_model_config is not None:
             # get the api key
             api_key = os.environ.get("OPENAI_API_KEY")
             # initialize the agent
             import agentscope
             from agentscope.models import DashScopeChatWrapper
 
-            agentscope.init(model_configs=[self.data_config.agent_model_config])
+            agentscope.init(model_configs=[self.config.agent_model_config])
             self.llm_agent = DashScopeChatWrapper(
                 config_name="_",
-                model_name=self.data_config.agent_model_name,
+                model_name=self.config.agent_model_name,
                 api_key=api_key,
                 stream=False,
             )
         else:
             self.llm_agent = None
         self.task_parser = DataTaskParser(config, self.llm_agent)
-        self.dsdb = RftDatasetDB(self.data_config)
 
         # Priority weights
         # larger positive values means larger scores --> higher priority
         # smaller negative values means lower scores --> higher priority
-        self.priority_weights = self.data_config.priority_weights or {
+        self.priority_weights = self.config.priority_weights or {
             "difficulty": -0.7,
             "diversity": 0.8,
             "usage_frequency": -0.5,
             "quality": 1.0,
         }
-        self.min_priority_score = self.data_config.min_priority_score
+        self.min_priority_score = self.config.min_priority_score
 
         # Statistics tracking
         self.state = {"iterations": 0, "samples_selected": 0, "avg_priority_score": 0.0}
@@ -67,17 +64,17 @@ class DataActiveIterator:
         #   2. input_keys: [prompt_key, response_key] if they are available
         #   3. field_names: [prompt_key, response_key] if they are available
         self.updated_op_args = {
-            "text_key": self.data_config.format.prompt_key,
+            "text_key": self.config.format.prompt_key,
             "input_keys": [
-                self.data_config.format.prompt_key,
+                self.config.format.prompt_key,
             ],
             "field_names": [
-                self.data_config.format.prompt_key,
+                self.config.format.prompt_key,
             ],
         }
-        if self.data_config.format.response_key != "":
-            self.updated_op_args["input_keys"].append(self.data_config.format.response_key)
-            self.updated_op_args["field_names"].append(self.data_config.format.response_key)
+        if self.config.format.response_key != "":
+            self.updated_op_args["input_keys"].append(self.config.format.response_key)
+            self.updated_op_args["field_names"].append(self.config.format.response_key)
 
     # flake8: noqa: C901
     def run(self):
@@ -94,9 +91,9 @@ class DataActiveIterator:
             traceback.print_exc()
             return 1, "config parsing failed."
 
-        # step 2. load dataset
+        # step 2. load data from the input buffers
         try:
-            dataset = RftDataset(self.data_config)
+            dataset = RftDataset(self.config, self.buffer_config)
         except Exception:
             traceback.print_exc()
             return 2, "RftDataset loading failed."
@@ -106,9 +103,9 @@ class DataActiveIterator:
             if hit_cleaner:
                 cleaner = DataCleaner(
                     dj_config,
-                    clean_strategy=self.data_config.clean_strategy,
-                    min_size_ratio=self.data_config.min_size_ratio,
-                    data_dist=self.data_config.data_dist,
+                    clean_strategy=self.config.clean_strategy,
+                    min_size_ratio=self.config.min_size_ratio,
+                    data_dist=self.config.data_dist,
                 )
             if hit_synthesizer:
                 synthesizer = DataSynthesizer(
@@ -122,43 +119,61 @@ class DataActiveIterator:
             traceback.print_exc()
             return 3, "DataCleaner loading failed."
 
-        # step 4. apply processors to calculate scores of different dimensions
-        try:
-            res_dataset = dataset
-            if hit_cleaner:
-                res_dataset = cleaner.process([res_dataset])
-            if hit_synthesizer:
-                res_dataset = synthesizer.process([res_dataset])
-            if hit_human_annotator:
-                res_dataset = human_annotator.process([res_dataset])
-        except Exception:
-            traceback.print_exc()
-            return 4, "DataProcessors processing failed."
+        while True:
+            # step 4. load data from the input buffers for the next batch
+            try:
+                dataset.read_from_buffer()
+            except StopIteration:
+                break
+            except Exception:
+                traceback.print_exc()
+                return 4, "RftDataset loading from buffers failed."
 
-        # step 5. calculate the average and final scores, including priority
-        try:
-            if hit_cleaner:
-                scored_dataset = self._group_scores(res_dataset)
-                scored_dataset = self._compute_priority_scores(scored_dataset)
-            else:
-                scored_dataset = res_dataset
-        except Exception:
-            traceback.print_exc()
-            return 5, "Grouping and computing priority score failed."
+            # step 5. apply processors to calculate scores of different dimensions
+            try:
+                res_dataset = dataset
+                if hit_cleaner:
+                    res_dataset = cleaner.process([res_dataset])
+                if hit_synthesizer:
+                    res_dataset = synthesizer.process([res_dataset])
+                if hit_human_annotator:
+                    res_dataset = human_annotator.process([res_dataset])
+            except Exception:
+                traceback.print_exc()
+                return 5, "DataProcessors processing failed."
 
-        # step 6. track lineage if they are changed
-        try:
-            res_dataset = scored_dataset
-        except Exception:
-            traceback.print_exc()
-            return 6, "Tracking lineage failed."
+            # step 6. calculate the average and final scores, including priority
+            try:
+                if hit_cleaner:
+                    scored_dataset = self._group_scores(res_dataset)
+                    scored_dataset = self._compute_priority_scores(scored_dataset)
+                else:
+                    scored_dataset = res_dataset
+            except Exception:
+                traceback.print_exc()
+                return 6, "Grouping and computing priority score failed."
 
-        # step 7. export the result to the database
-        try:
-            self.dsdb.add_entries(res_dataset)
-        except Exception:
-            traceback.print_exc()
-            return 7, "Exporting result to database failed."
+            # step 7. track lineage if they are changed
+            try:
+                res_dataset = scored_dataset
+            except Exception:
+                traceback.print_exc()
+                return 7, "Tracking lineage failed."
+
+            # step 8
+            try:
+                if "priority" in res_dataset.data.features:
+                    res_dataset.sort_by("priority", reverse=True)
+            except Exception:
+                traceback.print_exc()
+                return 8, "Sorting results by priority failed."
+
+            # step 9. sort and export the result to the output buffer
+            try:
+                res_dataset.write_to_buffer()
+            except Exception:
+                traceback.print_exc()
+                return 9, "Exporting result to output buffer failed."
 
         return 0, "success"
 
@@ -171,7 +186,8 @@ class DataActiveIterator:
             all_stats = [
                 sample[Fields.stats][stats] for sample in dataset.data if Fields.stats in sample
             ]
-            stats_min_max[stats] = [min(all_stats), max(all_stats)]
+            if len(all_stats) > 0 and isinstance(all_stats[0], Number):
+                stats_min_max[stats] = [min(all_stats), max(all_stats)]
 
         def _group_single(sample):
             stats = sample[Fields.stats]
@@ -240,7 +256,7 @@ class DataActiveIterator:
             difficulty = stats.get("difficulty_score", 0.5)
             score += self.priority_weights["difficulty"] * difficulty
 
-        sample["priority"] = [score]
+        sample["priority"] = [score] if isinstance(sample[Fields.stats], list) else score
         return sample
 
     def _compute_diversity_score(self) -> float:
@@ -251,10 +267,6 @@ class DataActiveIterator:
         """Compute utility scores for all samples in dataset"""
         dataset.data = dataset.data.map(self._compute_combined_score)
         return dataset
-
-    def _select_top_k(self, dataset: RftDataset, k: int) -> List:
-        """Select top-k samples based on utility scores"""
-        return dataset.data.sort("priority", reverse=True).take(k).to_list()
 
     @ray.method(num_returns=1)
     def select_batch(self, dataset: RftDataset, batch_size: int) -> List[Dict[str, Any]]:
@@ -267,7 +279,8 @@ class DataActiveIterator:
         dataset.data = dataset.data.filter(lambda s: s["priority"] >= self.min_priority_score)
 
         # Select top-k samples
-        selected_samples = self._select_top_k(dataset, batch_size)
+        dataset.sort_by("priority", reverse=True, top_k=batch_size)
+        selected_samples = dataset.data.to_list()
 
         # Update state
         self._update_state(selected_samples, dataset.data["priority"])

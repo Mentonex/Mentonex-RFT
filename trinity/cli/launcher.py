@@ -2,13 +2,14 @@
 import argparse
 import os
 import sys
+import traceback
 from pathlib import Path
 from pprint import pprint
 
 import ray
 
-from trinity.common.config import Config, load_config
-from trinity.common.constants import AlgorithmType
+from trinity.common.config import Config, DataPipelineConfig, load_config
+from trinity.common.constants import EXPLORER_NAME, TRAINER_NAME
 from trinity.explorer.explorer import Explorer
 from trinity.trainer.trainer import Trainer
 from trinity.utils.log import get_logger
@@ -19,56 +20,41 @@ logger = get_logger(__name__)
 
 def bench(config: Config) -> None:
     """Evaluate model."""
-    explorer = Explorer.remote(config)
+    explorer = ray.remote(Explorer).options(name=EXPLORER_NAME).remote(config)
     try:
         ray.get(explorer.prepare.remote())
         ray.get(explorer.benchmark.remote())
         logger.info("Benchmark finished.")
         ray.get(explorer.shutdown.remote())
-    except Exception as e:
-        logger.error(f"Benchmark failed: {e}")
-        raise e
+    except Exception:
+        error_msg = traceback.format_exc()
+        logger.error(f"Benchmark failed:\n{error_msg}")
 
 
 def explore(config: Config) -> None:
     """Run explorer."""
-    explorer = Explorer.remote(config)
     try:
+        explorer = ray.remote(Explorer).options(name=EXPLORER_NAME).remote(config)
         ray.get(explorer.prepare.remote())
         ray.get(explorer.sync_weight.remote())
         ray.get(explorer.explore.remote())
-        logger.info("Explore finished.")
         ray.get(explorer.shutdown.remote())
-    except Exception as e:
-        logger.error(f"Explore failed: {e}")
-        raise e
+    except Exception:
+        error_msg = traceback.format_exc()
+        logger.error(f"Explorer failed:\n{error_msg}")
 
 
 def train(config: Config) -> None:
     """Run trainer."""
-
-    trainer = Trainer.remote(config)
-    ray.get(trainer.prepare.remote())
-
-    if config.buffer.trainer_input.sft_warmup_steps > 0:
-        while True:
-            train_continue, train_step_num = ray.get(
-                trainer.train_one_period.remote(AlgorithmType.SFT)
-            )
-            if train_step_num <= config.buffer.trainer_input.sft_warmup_steps:
-                logger.info(f"SFT warmup step {train_step_num} finished.")
-            if not train_continue:
-                logger.info("SFT warmup finished.")
-                break
-
-    algo_type = config.algorithm.algorithm_type
     try:
-        ray.get(trainer.train.remote(algo_type))
-        logger.info("Train finished.")
+        trainer = ray.remote(Trainer).options(name=TRAINER_NAME).remote(config)
+        ray.get(trainer.prepare.remote())
+        ray.get(trainer.sync_weight.remote())
+        ray.get(trainer.train.remote())
         ray.get(trainer.shutdown.remote())
-    except Exception as e:
-        logger.error(f"Train failed {e}.")
-        raise e
+    except Exception:
+        error_msg = traceback.format_exc()
+        logger.error(f"Trainer failed:\n{error_msg}")
 
 
 def both(config: Config) -> None:
@@ -81,76 +67,58 @@ def both(config: Config) -> None:
     the latest step. The specific number of experiences may vary for different
     algorithms and tasks.
     """
-    explorer = Explorer.remote(config)
-    trainer = Trainer.remote(config)
+    explorer = ray.remote(Explorer).options(name=EXPLORER_NAME).remote(config)
+    trainer = ray.remote(Trainer).options(name=TRAINER_NAME).remote(config)
     ray.get([explorer.__ray_ready__.remote(), trainer.__ray_ready__.remote()])
-    logger.info("Setup explorer and trainer finished.")
     ray.get(
         [
             explorer.prepare.remote(),
             trainer.prepare.remote(),
         ]
     )
-    # sync weight before training start
-    ray.get([explorer.sync_weight.remote(), trainer.sync_weight.remote()])
+    ray.get(
+        [
+            explorer.sync_weight.remote(),
+            trainer.sync_weight.remote(),
+        ]
+    )
+    ready_ref, wait_ref = ray.wait(
+        [
+            explorer.explore.remote(),
+            trainer.train.remote(),
+        ],
+        num_returns=1,
+    )
 
-    if config.buffer.trainer_input.sft_warmup_steps > 0:
-        while True:
-            train_continue, train_step_num = ray.get(
-                trainer.train_one_period.remote(AlgorithmType.SFT)
-            )
-            if train_step_num <= config.buffer.trainer_input.sft_warmup_steps:
-                logger.info(f"SFT warmup step {train_step_num} finished.")
-            if not train_continue:
-                logger.info("SFT warmup finished.")
-                break
-        ray.get([explorer.sync_weight.remote(), trainer.sync_weight.remote()])
-
-    algo_type = config.algorithm.algorithm_type
-    while True:
-        try:
-            ref_explore = explorer.explore_one_period.remote()
-            ref_train = trainer.train_one_period.remote(algo_type)
-            explore_continue, explore_step_num = ray.get(ref_explore)
-            train_continue, train_step_num = ray.get(ref_train)
-            if not explore_continue:
-                # If explore finished, the trainer may not have enough experiences to continue,
-                # which will cause the trainer be blocked. So we stop the training process
-                # immediately.
-                # TODO: use a more elegant way to stop the training process.
-                logger.info("Explorer finished, stopping...")
-                break
-            if not train_continue:
-                logger.info("Trainer finished, stopping...")
-                break
-            ray.get([explorer.sync_weight.remote(), trainer.sync_weight.remote()])
-            logger.info("Model weight synchronized.")
-        except Exception as e:
-            logger.error(e)
-            logger.error("Training stopped due to exception.")
-            raise e
-        if explore_step_num % config.explorer.eval_interval == 0:
-            try:
-                ray.get(explorer.eval.remote())
-                logger.info("Evaluation finished.")
-            except Exception as e:
-                logger.error(e)
-                logger.error("Evaluation failed.")
-                raise e
-        ray.get(explorer.flush_log.remote(step=explore_step_num))
-        ray.get(trainer.flush_log.remote(step=train_step_num))
-
-    ray.get(explorer.shutdown.remote())
-    ray.get(trainer.shutdown.remote())
+    ready = ray.get(ready_ref[0])
+    if ready == TRAINER_NAME:
+        logger.info(
+            "===========================================================\n"
+            "> Launcher detected that the `Trainer` process has finished.\n"
+            "> Stopping the explorer process immediately.\n"
+            "==========================================================="
+        )
+        ray.wait(wait_ref, timeout=5)
+    elif ready == EXPLORER_NAME:
+        logger.info(
+            "============================================================\n"
+            "> Launcher detected that the `Explorer` process has finished.\n"
+            f"> Waiting {config.synchronizer.sync_timeout} s for the trainer process...\n"
+            "> You can force stop the Trainer process by pressing Ctrl+C.\n"
+            "============================================================"
+        )
+        ray.wait(wait_ref, timeout=config.synchronizer.sync_timeout)
+    explorer.shutdown.remote()
+    trainer.shutdown.remote()
 
 
-def activate_data_module(data_workflow_url: str, config_path: str):
+def activate_data_module(data_processor_url: str, config_path: str):
     """Check whether to activate data module and preprocess datasets."""
     from trinity.cli.client import request
 
-    logger.info("Activating data module...")
+    logger.info(f"Activating data module of {data_processor_url}...")
     res = request(
-        url=data_workflow_url,
+        url=data_processor_url,
         configPath=config_path,
     )
     if res["return_code"] != 0:
@@ -158,17 +126,71 @@ def activate_data_module(data_workflow_url: str, config_path: str):
         return
 
 
+def validate_data_pipeline(data_pipeline_config: DataPipelineConfig, pipeline_type: str):
+    """
+    Check if the data pipeline is valid. The config should:
+    1. Non-empty input buffer
+    2. Different input/output buffers
+
+    :param data_pipeline_config: the input data pipeline to be validated.
+    :param pipeline_type: the type of pipeline, should be one of ["task", "experience"]
+    """
+    input_buffers = data_pipeline_config.input_buffers
+    output_buffer = data_pipeline_config.output_buffer
+    # common checks
+    # check if the input buffer list is empty
+    if len(input_buffers) == 0:
+        logger.warning("Empty input buffers in the data pipeline. Won't activate it.")
+        return False
+    # check if the input and output buffers are different
+    input_buffer_names = [buffer.name for buffer in input_buffers]
+    if output_buffer.name in input_buffer_names:
+        logger.warning("Output buffer exists in input buffers. Won't activate it.")
+        return False
+    if pipeline_type == "task":
+        # task pipeline specific
+        # "raw" field should be True for task pipeline because the data source must be raw data files
+        for buffer in input_buffers:
+            if not buffer.raw:
+                logger.warning(
+                    'Input buffers should be raw data files for task pipeline ("raw" field should be True). Won\'t activate it.'
+                )
+                return False
+    elif pipeline_type == "experience":
+        # experience pipeline specific
+        raise NotImplementedError("experience_pipeline is not implemented yet.")
+    else:
+        logger.warning(
+            f'Invalid pipeline type: {pipeline_type}. Should be one of ["task", "experience"].'
+        )
+        return False
+    return True
+
+
 def run(config_path: str, dlc: bool = False, plugin_dir: str = None):
     load_plugins(plugin_dir)
     config = load_config(config_path)
     config.check_and_update()
     pprint(config)
-    # try to activate data module
+    # try to activate task pipeline for raw data
     data_processor_config = config.data_processor
-    if data_processor_config.data_workflow_url and (
-        data_processor_config.dj_config_path or data_processor_config.dj_process_desc
+    if (
+        data_processor_config.data_processor_url
+        and data_processor_config.task_pipeline
+        and validate_data_pipeline(data_processor_config.task_pipeline, "task")
     ):
-        activate_data_module(data_processor_config.data_workflow_url, config_path)
+        activate_data_module(
+            f"{data_processor_config.data_processor_url}/task_pipeline", config_path
+        )
+    # try to activate experience pipeline for experiences
+    if (
+        data_processor_config.data_processor_url
+        and data_processor_config.experience_pipeline
+        and validate_data_pipeline(data_processor_config.experience_pipeline, "experience")
+    ):
+        activate_data_module(
+            f"{data_processor_config.data_processor_url}/experience_pipeline", config_path
+        )
     ray_namespace = f"{config.project}-{config.name}"
     if dlc:
         from trinity.utils.dlc_utils import setup_ray_cluster
