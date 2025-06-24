@@ -237,19 +237,26 @@ def run(config_path: str, dlc: bool = False, plugin_dir: str = None):
         if not is_running:
             raise RuntimeError("Ray is not running, please start it by `ray start --head`.")
         ray.init(namespace=config.ray_namespace, ignore_reinit_error=True)
-    if config.mode == "explore":
-        explore(config)
-    elif config.mode == "train":
-        train(config)
-    elif config.mode == "both":
-        both(config)
-    elif config.mode == "bench":
-        bench(config)
+    try:
+        if config.mode == "explore":
+            explore(config)
+        elif config.mode == "train":
+            train(config)
+        elif config.mode == "both":
+            both(config)
+        elif config.mode == "bench":
+            bench(config)
+    finally:
+        if config.monitor.enable_ray_timeline:
+            timeline_file = os.path.join(config.monitor.cache_dir, "timeline.json")
+            logger.info(f"Exporting Ray timeline to {timeline_file}...")
+            ray.timeline(filename=timeline_file)
+            logger.info("Done. You can open the timeline file in `chrome://tracing`")
 
-    if dlc:
-        from trinity.utils.dlc_utils import stop_ray_cluster
+        if dlc:
+            from trinity.utils.dlc_utils import stop_ray_cluster
 
-        stop_ray_cluster(namespace=config.ray_namespace)
+            stop_ray_cluster(namespace=config.ray_namespace)
 
 
 def studio(port: int = 8501):

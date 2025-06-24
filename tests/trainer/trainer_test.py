@@ -149,6 +149,7 @@ class TestStepAheadAsyncRL(BaseTrainerCase):
         response_metrics = parser.metric_list("response_length")
         self.assertTrue(len(response_metrics) > 0)
         self.assertEqual(parser.metric_max_step(response_metrics[0]), 4)
+        ray.timeline(filename="timeline.json")
         ray.shutdown(_exiting_interpreter=True)
         # check checkpoint
         from trinity.common.models.utils import get_checkpoint_dir_with_step_num

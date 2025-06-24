@@ -319,6 +319,9 @@ class MonitorConfig:
     monitor_type: str = "tensorboard"
     # the default args for monitor
     monitor_args: Dict = field(default_factory=dict)
+    # whether to enable ray timeline profile
+    # the output file will be saved to `cache_dir/timeline.json`
+    enable_ray_timeline: bool = False
     # ! DO NOT SET, automatically generated as checkpoint_job_dir/monitor
     cache_dir: str = ""
 
