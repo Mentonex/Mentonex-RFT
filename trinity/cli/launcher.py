@@ -9,7 +9,6 @@ from pprint import pprint
 import ray
 
 from trinity.common.config import Config, DataPipelineConfig, load_config
-from trinity.common.constants import EXPLORER_NAME, TRAINER_NAME
 from trinity.explorer.explorer import Explorer
 from trinity.trainer.trainer import Trainer
 from trinity.utils.log import get_logger
@@ -23,7 +22,7 @@ def bench(config: Config) -> None:
     explorer = (
         ray.remote(Explorer)
         .options(
-            name=EXPLORER_NAME,
+            name=config.explorer.name,
             namespace=ray.get_runtime_context().namespace,
         )
         .remote(config)
@@ -44,7 +43,7 @@ def explore(config: Config) -> None:
         explorer = (
             ray.remote(Explorer)
             .options(
-                name=EXPLORER_NAME,
+                name=config.explorer.name,
                 namespace=ray.get_runtime_context().namespace,
             )
             .remote(config)
@@ -64,7 +63,7 @@ def train(config: Config) -> None:
         trainer = (
             ray.remote(Trainer)
             .options(
-                name=TRAINER_NAME,
+                name=config.trainer.name,
                 namespace=ray.get_runtime_context().namespace,
             )
             .remote(config)
@@ -92,7 +91,7 @@ def both(config: Config) -> None:
     explorer = (
         ray.remote(Explorer)
         .options(
-            name=EXPLORER_NAME,
+            name=config.explorer.name,
             namespace=namespace,
         )
         .remote(config)
@@ -100,7 +99,7 @@ def both(config: Config) -> None:
     trainer = (
         ray.remote(Trainer)
         .options(
-            name=TRAINER_NAME,
+            name=config.trainer.name,
             namespace=namespace,
         )
         .remote(config)
@@ -127,7 +126,7 @@ def both(config: Config) -> None:
     )
 
     ready = ray.get(ready_ref[0])
-    if ready == TRAINER_NAME:
+    if ready == config.trainer.name:
         logger.info(
             "===========================================================\n"
             "> Launcher detected that the `Trainer` process has finished.\n"
@@ -135,7 +134,7 @@ def both(config: Config) -> None:
             "==========================================================="
         )
         ray.wait(wait_ref, timeout=5)
-    elif ready == EXPLORER_NAME:
+    elif ready == config.explorer.name:
         logger.info(
             "============================================================\n"
             "> Launcher detected that the `Explorer` process has finished.\n"
