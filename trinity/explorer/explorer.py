@@ -125,7 +125,7 @@ class Explorer:
         self.logger.info(f"Setup {self.config.explorer.runner_num} WorkflowRunners")
         return RunnerPool(self.config, self.models, self.auxiliary_models)
 
-    async def _update_model_weight(self, state_dict: dict) -> None:
+    async def _update_model_weight(self, step_num: int, state_dict: dict) -> None:
         # TODO: update model weight
         self.state_dict = state_dict
         if self.state_dict_meta is None:
@@ -136,14 +136,14 @@ class Explorer:
         else:
             update_weight_args_list = None
         await asyncio.gather(
-            *[model.sync_model.remote(update_weight_args_list) for model in self.models]
+            *[model.sync_model.remote(step_num, update_weight_args_list) for model in self.models]
         )
         self.state_dict.clear()
 
     async def _checkpoint_weights_update(self, step_num: Optional[int] = None) -> None:
         # TODO: support more checkpoint types
         try:
-            checkpoint_dir = get_checkpoint_dir_with_step_num(
+            checkpoint_dir, checkpoint_step_num = get_checkpoint_dir_with_step_num(
                 checkpoint_root_path=self.config.checkpoint_job_dir,
                 trainer_type=self.config.trainer.trainer_type,
                 step_num=step_num,
@@ -151,14 +151,16 @@ class Explorer:
             if checkpoint_dir == self.old_checkpoint:
                 return
             model_weights = load_state_dict(os.path.join(checkpoint_dir, "actor"))
-            await self._update_model_weight(model_weights)
+            await self._update_model_weight(checkpoint_step_num, model_weights)
             self.old_checkpoint = checkpoint_dir
         except Exception as e:
             self.logger.warning(f"Fail to load checkpoint: {e}")
 
     async def _nccl_weights_update(self):
         assert self.state_dict_meta is not None
-        await asyncio.gather(*[model.sync_model.remote() for model in self.models])
+        await asyncio.gather(
+            *[model.sync_model.remote(self.explore_step_num) for model in self.models]
+        )
 
     async def prepare(self) -> None:
         """Preparation before running."""
