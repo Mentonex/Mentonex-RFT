@@ -1,13 +1,22 @@
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields, is_dataclass
 from typing import Any, Dict, List, Optional, Union
 
 import networkx as nx
 from datasets import Dataset, concatenate_datasets
 
 from trinity.buffer import get_buffer_reader, get_buffer_writer
-from trinity.common.config import BufferConfig, DataPipelineConfig, StorageConfig
+from trinity.common.config import BufferConfig, DataPipelineConfig
 from trinity.data.core.formatter import BaseDataFormatter
+from trinity.utils.log import get_logger
+
+logger = get_logger(__name__)
+
+
+def dict_to_dataclass(cls, d):
+    valid_keys = {f.name for f in fields(cls)}
+    filtered = {k: v for k, v in d.items() if k in valid_keys}
+    return cls(**filtered)
 
 
 @dataclass
@@ -42,13 +51,18 @@ class RftDataset:
     ):
         self.config = data_pipeline_config
         self.buffer_config = buffer_config
+        # init input buffers
         input_buffer_configs = self.config.input_buffers
         if len(input_buffer_configs) == 0:
             raise ValueError("input_buffers is empty in data pipeline config")
-        self.buffers = []
+        self.input_buffers = []
         for input_buffer_config in input_buffer_configs:
-            self.buffers.append(get_buffer_reader(input_buffer_config, self.buffer_config))
+            self.input_buffers.append(get_buffer_reader(input_buffer_config, self.buffer_config))
+        # init output buffer
+        self.output_buffer = get_buffer_writer(self.config.output_buffer, self.buffer_config)
+
         self.data = Dataset.from_list([])
+        self.original_dataclass = None
 
         self.reward_schema = self._init_reward_schema(reward_schema)
         self.stats: Dict[str, Any] = {}
@@ -71,21 +85,27 @@ class RftDataset:
 
     def read_from_buffer(self):
         datasets = []
-        for buffer in self.buffers:
-            datasets.append(Dataset.from_list(buffer.read()))
+        for buffer in self.input_buffers:
+            exp_list = buffer.read()
+            if len(exp_list) > 0 and is_dataclass(exp_list[0]):
+                exp_list = [asdict(exp) for exp in exp_list]
+                if self.original_dataclass is None:
+                    self.original_dataclass = exp_list[0].__class__
+            datasets.append(Dataset.from_list([exp for exp in exp_list]))
         self.data = concatenate_datasets(datasets)
+        logger.info(f"Read {len(self.data)} samples from input buffers")
 
-    def write_to_buffer(
-        self, output_storage_config: StorageConfig = None, buffer_config: BufferConfig = None
-    ):
-        if output_storage_config is None:
-            output_storage_config = self.config.output_buffer
-        if buffer_config is None:
-            buffer_config = self.buffer_config
-        output_buffer = get_buffer_writer(output_storage_config, buffer_config)
-        output_buffer.write(self.data.to_list())
-        output_buffer.release()
+    def write_to_buffer(self):
+        if self.original_dataclass is not None:
+            exp_list = [dict_to_dataclass(self.original_dataclass, d) for d in self.data.to_list()]
+        else:
+            exp_list = self.data.to_list()
+        self.output_buffer.write(exp_list)
+        logger.info(f"Wrote {len(self.data)} samples to output buffer")
         self.data = Dataset.from_list([])
+
+    def release_output_buffer(self):
+        self.output_buffer.release()
 
     def to_parquet(self, path: str):
         self.data.to_parquet(path)

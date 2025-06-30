@@ -1,17 +1,24 @@
 import os
+import threading
 import traceback
+from functools import partial
 from numbers import Number
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 import ray
+from data_juicer.utils.constant import Fields
 
-from trinity.common.config import BufferConfig, DataPipelineConfig
+from trinity.common.config import BufferConfig, DataPipelineConfig, RewardShapingConfig
+from trinity.common.constants import DataProcessorPipelineType, OpType
 from trinity.data.controllers.default_ops import DIMENSION_STATS_KEYS
 from trinity.data.controllers.task_parser import DataTaskParser
 from trinity.data.core.dataset import RftDataset
 from trinity.data.processors.cleaner import DataCleaner
 from trinity.data.processors.human_annotator import DataHumanAnnotator
 from trinity.data.processors.synthesizer import DataSynthesizer
+from trinity.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 
 class DataActiveIterator:
@@ -23,9 +30,22 @@ class DataActiveIterator:
         self,
         config: DataPipelineConfig,
         buffer_config: BufferConfig,
+        pipeline_type: Union[DataProcessorPipelineType, str] = DataProcessorPipelineType.TASK,
     ):
+        """
+        The initialization method.
+
+        :param config: the data pipeline config.
+        :param buffer_config: the buffer config.
+        :param pipeline_type: the type of the activated pipeline.
+        """
         self.config = config
         self.buffer_config = buffer_config
+        self.pipeline_type = pipeline_type
+        if isinstance(self.pipeline_type, str):
+            self.pipeline_type = DataProcessorPipelineType(pipeline_type)
+
+        # check if the llm agent is required
         if self.config.agent_model_name is not None and self.config.agent_model_config is not None:
             # get the api key
             api_key = os.environ.get("OPENAI_API_KEY")
@@ -42,6 +62,8 @@ class DataActiveIterator:
             )
         else:
             self.llm_agent = None
+
+        # init task parser
         self.task_parser = DataTaskParser(config, self.llm_agent)
 
         # Priority weights
@@ -77,9 +99,10 @@ class DataActiveIterator:
             self.updated_op_args["field_names"].append(self.config.format.response_key)
 
     # flake8: noqa: C901
-    def run(self):
+    def run(self, thread_event: threading.Event = None):
         """Run the active iterator."""
         # step 1. parse the dj config
+        logger.info("Parsing the Data-Juicer config...")
         try:
             (
                 dj_config,
@@ -91,14 +114,16 @@ class DataActiveIterator:
             traceback.print_exc()
             return 1, "config parsing failed."
 
-        # step 2. load data from the input buffers
+        # step 2. prepare rft-dataset from the input buffers
+        logger.info("Preparing Rft-Dataset from input buffers...")
         try:
             dataset = RftDataset(self.config, self.buffer_config)
         except Exception:
             traceback.print_exc()
             return 2, "RftDataset loading failed."
 
-        # step 3. load cleaner
+        # step 3. load processor
+        logger.info("Loading data processors...")
         try:
             if hit_cleaner:
                 cleaner = DataCleaner(
@@ -120,7 +145,13 @@ class DataActiveIterator:
             return 3, "DataCleaner loading failed."
 
         while True:
+            # if a stop event is set, stop!
+            if thread_event and thread_event.is_set():
+                logger.info("Stop event is set, stopping the pipeline...")
+                break
+
             # step 4. load data from the input buffers for the next batch
+            logger.info("Loading data from input buffers for the next batch...")
             try:
                 dataset.read_from_buffer()
             except StopIteration:
@@ -130,6 +161,7 @@ class DataActiveIterator:
                 return 4, "RftDataset loading from buffers failed."
 
             # step 5. apply processors to calculate scores of different dimensions
+            logger.info("Applying data processors to calculate stats...")
             try:
                 res_dataset = dataset
                 if hit_cleaner:
@@ -145,6 +177,7 @@ class DataActiveIterator:
             # step 6. calculate the average and final scores, including priority
             try:
                 if hit_cleaner:
+                    logger.info("Calculating the average and final scores...")
                     scored_dataset = self._group_scores(res_dataset)
                     scored_dataset = self._compute_priority_scores(scored_dataset)
                 else:
@@ -153,34 +186,55 @@ class DataActiveIterator:
                 traceback.print_exc()
                 return 6, "Grouping and computing priority score failed."
 
-            # step 7. track lineage if they are changed
+            # step 7. reward shaping. Only available for experience pipeline and the reward shaping config is set
             try:
-                res_dataset = scored_dataset
+                if (
+                    self.pipeline_type == DataProcessorPipelineType.EXPERIENCE
+                    and self.config.reward_shaping is not None
+                    and len(self.config.reward_shaping) > 0
+                ):
+                    logger.info("Rewarding shaping...")
+                    reshaped_dataset = self._reward_shaping(scored_dataset)
+                else:
+                    reshaped_dataset = scored_dataset
             except Exception:
                 traceback.print_exc()
-                return 7, "Tracking lineage failed."
+                return 7, "Reward shaping failed."
 
-            # step 8
+            # step 8. track lineage if they are changed
+            try:
+                res_dataset = reshaped_dataset
+            except Exception:
+                traceback.print_exc()
+                return 8, "Tracking lineage failed."
+
+            # step 9, sort the dataset by the computed priority
             try:
                 if "priority" in res_dataset.data.features:
+                    logger.info("Sorting samples by priority...")
                     res_dataset.sort_by("priority", reverse=True)
             except Exception:
                 traceback.print_exc()
-                return 8, "Sorting results by priority failed."
+                return 9, "Sorting results by priority failed."
 
-            # step 9. sort and export the result to the output buffer
+            # step 10. export the result to the output buffer
             try:
+                logger.info("Writing processed data to output buffer...")
                 res_dataset.write_to_buffer()
             except Exception:
                 traceback.print_exc()
-                return 9, "Exporting result to output buffer failed."
+                return 10, "Exporting result to output buffer failed."
+
+        try:
+            dataset.release_output_buffer()
+        except Exception:
+            traceback.print_exc()
+            return -1, "Releasing output buffer failed."
 
         return 0, "success"
 
     def _group_scores(self, dataset: RftDataset) -> RftDataset:
         # for perplexity, normalize them with the max value.
-        from data_juicer.utils.constant import Fields
-
         stats_min_max = {}
         for stats in dataset.data.features[Fields.stats]:
             all_stats = [
@@ -267,6 +321,45 @@ class DataActiveIterator:
         """Compute utility scores for all samples in dataset"""
         dataset.data = dataset.data.map(self._compute_combined_score)
         return dataset
+
+    def _reward_shaping_single(self, sample, reward_shaping_config: RewardShapingConfig):
+        tgt_stats = reward_shaping_config.stats_key
+        op_type = reward_shaping_config.op_type
+        # if the target stats does not exist, skip this stats and return the original sample
+        if tgt_stats not in sample[Fields.stats]:
+            return sample
+        if op_type == OpType.ADD:
+            sample[self.config.format.reward_key] += (
+                reward_shaping_config.weight * sample[Fields.stats][tgt_stats]
+            )
+        elif op_type == OpType.MUL:
+            sample[self.config.format.reward_key] *= (
+                reward_shaping_config.weight * sample[Fields.stats][tgt_stats]
+            )
+        elif op_type == OpType.SUB:
+            sample[self.config.format.reward_key] -= (
+                reward_shaping_config.weight * sample[Fields.stats][tgt_stats]
+            )
+        elif op_type == OpType.DIV:
+            sample[self.config.format.reward_key] /= (
+                reward_shaping_config.weight * sample[Fields.stats][tgt_stats]
+            )
+        return sample
+
+    def _reward_shaping(self, rft_dataset: RftDataset) -> RftDataset:
+        dataset = rft_dataset.data
+        # check if there is a reward column in the dataset. If not, skip!
+        if self.config.format.reward_key not in dataset.features:
+            return rft_dataset
+        # get reward shaping configs
+        reward_shaping_configs = self.config.reward_shaping
+        for reward_shaping_config in reward_shaping_configs:
+            dataset = dataset.map(
+                partial(self._reward_shaping_single, reward_shaping_config=reward_shaping_config)
+            )
+
+        rft_dataset.data = dataset
+        return rft_dataset
 
     @ray.method(num_returns=1)
     def select_batch(self, dataset: RftDataset, batch_size: int) -> List[Dict[str, Any]]:
