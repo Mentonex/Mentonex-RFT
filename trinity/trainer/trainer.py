@@ -5,6 +5,7 @@ Trainer Class
 from __future__ import annotations
 
 import os
+import traceback
 from abc import ABC, abstractmethod
 
 import ray
@@ -36,8 +37,8 @@ class Trainer:
                     break
                 if self.need_sync():
                     self.sync_weight()
-            except Exception as e:
-                self.logger.error(f"Error in Trainer: {e}")
+            except Exception:
+                self.logger.error(f"Error in Trainer:\n{traceback.format_exc()}")
                 break
         self.logger.info("--------------------\n> Trainer finished.\n--------------------")
         return self.config.trainer.name

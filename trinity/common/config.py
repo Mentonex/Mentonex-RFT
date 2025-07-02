@@ -87,6 +87,7 @@ class StorageConfig:
 
     # used for StorageType.QUEUE
     capacity: int = 10000
+    max_read_timeout: float = 1800
 
     # used for rollout tasks
     default_workflow_type: Optional[str] = None

@@ -295,6 +295,13 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             prefix_metrics(sample_metrics, "sample", metrics)
         except StopIteration:
             print("No more data to train. Stop training.")
+            if (
+                self.config.trainer.save_freq == 0
+                or self.global_steps % self.config.trainer.save_freq != 0
+            ):
+                self.logger.info(f"Saving at step {self.global_steps}.")
+                self._save_checkpoint()
+                self.logger.info(f"Saved at step {self.global_steps}.")
             return False
         self.global_steps += 1
         self.logger.info(f"Sampling at step {self.global_steps} done.")
