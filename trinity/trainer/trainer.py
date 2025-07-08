@@ -67,10 +67,11 @@ class Trainer:
             if explorer_status == RunningStatus.STOPPED:
                 self.logger.warning("Explorer has already stopped. Skipping sync weight.")
                 return
+            ray.get(self.explorer_ref.ready_to_sync.remote())
+            self.engine.sync_weight()
             self.logger.info(
                 f"Trainer synchronizing weights at step {self.engine.train_step_num} end."
             )
-            self.engine.sync_weight()
 
     def flush_log(self, step: int) -> None:
         """Flush the log of the current step."""
