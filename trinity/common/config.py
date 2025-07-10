@@ -304,12 +304,14 @@ class ExplorerConfig:
     name: str = EXPLORER_NAME
     # for workflow runner
     # number of workflow runners.
-    # For sync engine (vllm), it should be equal to `engine_num`.
-    # For async engine (vllm_async), it can be larger than `engine_num`, e.g. 16 * `engine_num`
-    runner_num: int = 1
-    max_timeout: int = 900  # wait each task for 15 minutes
+    # For sync engine (vllm), it should be `1`.
+    # For async engine (vllm_async), it could be a large number.
+    runner_per_model: int = 8  # number of runners per each rollout model
+    max_timeout: int = 1800  # wait each task for 30 minutes
     max_retry_times: int = 2  # retry each task for 2 times if it fails or timeout
-    env_vars: dict = field(default_factory=dict)
+    env_vars: dict = field(default_factory=dict)  # environment variables for workflow runner
+
+    runner_num: Optional[int] = None  # deprecated
 
     # for inference models
     # for rollout model
@@ -319,7 +321,10 @@ class ExplorerConfig:
 
     # for evaluation
     eval_interval: int = 100
-    eval_on_latest_checkpoint: bool = False
+    eval_on_startup: bool = True  # evalulate at step 0
+
+    # for benchmark
+    bench_on_latest_checkpoint: bool = False  # only benchmark the latest checkpoint
 
 
 @dataclass
@@ -362,7 +367,7 @@ class SynchronizerConfig:
     # allow explorer to run `sync_offset` steps before sync
     sync_offset: int = 0
     # waiting for `sync_timeout` seconds before timeout in `nccl` method
-    sync_timeout: int = 1800
+    sync_timeout: int = 3600
     # wait for the lastest checkpoint to be ready  # TODO: to be used
     wait_for_checkpoint: bool = False
 
