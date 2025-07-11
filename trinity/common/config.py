@@ -88,6 +88,11 @@ class StorageConfig:
     # used for StorageType.QUEUE
     capacity: int = 10000
     max_read_timeout: float = 1800
+    use_priority_queue: bool = False
+    reuse_cooldown_time: Optional[float] = None
+    replay_buffer_kwargs: dict = field(
+        default_factory=lambda: {"priority_fn": "linear_decay", "decay": 0.1}
+    )
 
     # used for rollout tasks
     default_workflow_type: Optional[str] = None
