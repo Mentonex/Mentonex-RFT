@@ -206,6 +206,9 @@ class InferenceModelConfig:
     # For Qwen3
     enable_thinking: bool = False
 
+    # For history recording
+    enable_history: bool = False
+
     # For OpenAI API
     enable_openai_api: bool = False
 
@@ -313,8 +316,6 @@ class ExplorerConfig:
     name: str = EXPLORER_NAME
     # for workflow runner
     # number of workflow runners.
-    # For sync engine (vllm), it should be `1`.
-    # For async engine (vllm_async), it could be a large number.
     runner_per_model: int = 8  # number of runners per each rollout model
     max_timeout: int = 1800  # wait each task for 30 minutes
     max_retry_times: int = 2  # retry each task for 2 times if it fails or timeout
@@ -722,11 +723,6 @@ class Config:
             self.model.critic_model_path = self.model.model_path
 
         # check explorer
-        if (
-            self.explorer.rollout_model.engine_type != "vllm_async"
-            and self.explorer.rollout_model.enable_openai_api
-        ):
-            raise ValueError("OpenAI API server only support `vllm_async` engine.")
         if self.explorer.rollout_model.max_prompt_tokens is None:
             self.explorer.rollout_model.max_prompt_tokens = self.model.max_prompt_tokens
         if self.explorer.rollout_model.max_response_tokens is None:
