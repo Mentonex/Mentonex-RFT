@@ -2,6 +2,7 @@
 """Configs for RFT."""
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from omegaconf import OmegaConf
@@ -400,6 +401,8 @@ class Config:
     checkpoint_job_dir: str = ""
     # If not set, automatically generated as f"{config.project}-{config.name}"
     ray_namespace: str = ""
+    # whether to continue training from the last checkpoint in checkpoint_job_dir (if any)
+    continue_from_checkpoint: bool = True
 
     algorithm: AlgorithmConfig = field(default_factory=AlgorithmConfig)
     data_processor: DataProcessorConfig = field(default_factory=DataProcessorConfig)
@@ -714,6 +717,15 @@ class Config:
             self.checkpoint_root_dir = os.path.join(os.getcwd(), self.checkpoint_root_dir)
         # create a job dir at checkpoint_root_dir/project/name
         self.checkpoint_job_dir = os.path.join(self.checkpoint_root_dir, self.project, self.name)
+        # rename the experiment when necessary
+        if not self.continue_from_checkpoint and (
+            os.path.exists(self.checkpoint_job_dir) and os.listdir(self.checkpoint_job_dir)
+        ):
+            ori_name = self.name
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            self.name = f"{ori_name}_{timestamp}"
+            self.checkpoint_job_dir = f"{self.checkpoint_job_dir}_{timestamp}"
+            logger.warning(f"Experiment [{ori_name}] already exists, renamed as {self.name}.")
         os.makedirs(self.checkpoint_job_dir, exist_ok=True)
 
         # check and update model path
