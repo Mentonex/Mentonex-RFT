@@ -69,9 +69,8 @@ jobs:
           docker compose exec trinity-node-1 pytest tests -v -s --ignore=tests/data --ctrf report.json
           echo "tests_run=true" >> $GITHUB_ENV
         elif [ "$TYPE" = "diff" ]; then
-          ROOT_DIR=trinity-${{ github.run_id }}
-          if [ -s "$ROOT_DIR/test_dirs.txt" ]; then
-            TEST_DIRS=$(cat "$ROOT_DIR/test_dirs.txt" | xargs)
+          if [ -s ../../../test_dirs.txt ]; then
+            TEST_DIRS=$(cat ../../../test_dirs.txt | xargs)
             docker compose exec trinity-node-1 pytest $TEST_DIRS -v -s --ignore=tests/data --ctrf report.json
             echo "tests_run=true" >> $GITHUB_ENV
           else
