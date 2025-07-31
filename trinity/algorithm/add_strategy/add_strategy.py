@@ -178,7 +178,7 @@ class OPMDAddStrategy(GroupAdvantageStrategy):
 
 
 @ADD_STRATEGY.register_module("reward_variance")
-class RewardVarianceAddStrategy(GRPOAddStrategy):
+class RewardVarianceAddStrategy(AddStrategy):
     """An example AddStrategy that filters experiences based on a reward variance threshold."""
 
     def __init__(self, writer: BufferWriter, variance_threshold: float = 0.0, **kwargs) -> None:
