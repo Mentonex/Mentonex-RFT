@@ -30,7 +30,7 @@ class Synchronizer:
         checkpoint_shard_counter: Tracks how many shards are received from trainer for a specific train step.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, module_ref: ray.actor.ActorHandle):
         self.logger = get_logger(__name__)
         self.config = config
         self.trainer_status = RunningStatus.STOPPED
@@ -40,6 +40,30 @@ class Synchronizer:
         self.model_version = 0
         self.checkpoint_shard_counter = defaultdict(lambda: 0)
         self.ref_count = 0
+        self._modules = {module_ref}
+        asyncio.create_task(self._check_modules())
+
+    def add_module(self, module_ref: ray.actor.ActorHandle) -> None:
+        """Adds a module to be tracked by the synchronizer.
+
+        Args:
+            module_ref: The Ray actor handle of the module to track.
+        """
+        self._modules.add(module_ref)
+
+    async def _check_modules(self) -> None:
+        while len(self._modules) > 0:
+            alive_modules = set()
+            for module in self._modules:
+                try:
+                    await module.is_alive.remote()
+                    alive_modules.add(module)
+                except ray.exceptions.RayActorError:
+                    pass
+            self._modules = alive_modules
+            await asyncio.sleep(5)
+        self.logger.info("Synchronizer stopped.")
+        ray.actor.exit_actor()
 
     async def set_trainer_status(self, status: RunningStatus):
         """Update the status of the trainer."""
@@ -281,27 +305,16 @@ class Synchronizer:
             A reference to the Synchronizer actor.
         """
         if config is not None:
-            if config.mode == "explore" or (
-                config.mode == "train" and config.algorithm.algorithm_type not in {"dpo", "sft"}
-            ):
-                lifetime = "detached"
-            else:
-                lifetime = None
-            return (
+            module_ref = ray.get_runtime_context().current_actor
+            synchronizer = (
                 ray.remote(cls)
                 .options(
                     name="synchronizer",
                     namespace=config.ray_namespace,
                     get_if_exists=True,
-                    lifetime=lifetime,
+                    lifetime="detached",
                 )
-                .remote(config)
+                .remote(config, module_ref=module_ref)
             )
+            ray.get(synchronizer.add_module.remote(module_ref))
         return ray.get_actor("synchronizer", namespace=namespace)
-
-    def acquire(self):
-        self.ref_count += 1
-
-    def release(self):
-        self.ref_count -= 1
-        return self.ref_count

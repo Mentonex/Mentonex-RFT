@@ -9,7 +9,6 @@ import traceback
 from collections import deque
 from typing import List, Optional
 
-import ray
 import torch
 
 from trinity.algorithm import ADD_STRATEGY
@@ -166,10 +165,9 @@ class Explorer:
         """Preparation before running."""
         futures = [
             asyncio.create_task(self.scheduler.start()),
-            self.synchronizer.acquire.remote(),
         ]
         if self.experience_buffer:
-            futures.append(asyncio.create_task(self.experience_buffer.acquire()))
+            futures.append(asyncio.create_task(self.experience_buffer.acquire()))  # type: ignore
         if not self.use_nccl_sync:
             master_address, master_port = await self.models[0].get_available_address.remote()
             futures.append(
@@ -398,6 +396,7 @@ class Explorer:
     async def shutdown(self) -> None:
         await self.scheduler.stop()
         self.monitor.close()
-        if await self.synchronizer.release.remote() == 0:
-            ray.kill(self.synchronizer)
-            self.logger.info("Synchronizer stopped.")
+
+    def is_alive(self) -> bool:
+        """Check if the explorer is alive."""
+        return True
