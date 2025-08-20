@@ -668,9 +668,15 @@ class Config:
             from transformers import AutoTokenizer
 
             try:
-                self.buffer.pad_token_id = AutoTokenizer.from_pretrained(
-                    self.model.model_path
-                ).pad_token_id
+                tokenizer = AutoTokenizer.from_pretrained(self.model.model_path)
+                if tokenizer.pad_token_id is None:
+                    tokenizer.pad_token_id = tokenizer.eos_token_id
+                    logger.warning(
+                        f"tokenizer.pad_token_id is None. Now set to {tokenizer.eos_token_id}",
+                        stacklevel=1,
+                    )
+                self.buffer.pad_token_id = tokenizer.pad_token_id
+
             except Exception:
                 logger.warning(f"Failed to get pad token id from model {self.model.model_path}")
                 self.buffer.pad_token_id = 0
