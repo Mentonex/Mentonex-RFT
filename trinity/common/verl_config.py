@@ -251,6 +251,7 @@ class Trainer:
     sft_warmup_steps: int = 0
     max_actor_ckpt_to_keep: Optional[int] = None
     max_critic_ckpt_to_keep: Optional[int] = None
+    device: str = "cuda"  # default to cuda
 
 
 @dataclass
