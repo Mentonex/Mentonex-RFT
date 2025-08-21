@@ -135,7 +135,7 @@ class OPMDGroupAdvantage(GroupAdvantage):
                 exp.advantages = score * exp.action_mask
                 exp.returns = exp.advantages.clone()
             metrics = {
-                "group_baseline": group_baseline,
+                "group_baseline": group_baseline.item(),
             }
         return exps, metrics
 

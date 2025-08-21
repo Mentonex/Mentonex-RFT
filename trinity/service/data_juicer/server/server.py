@@ -30,7 +30,9 @@ def create():
         config (dict): Configuration parameters for the session.
 
     For example, the config should look like this:
+
     .. code-block:: python
+
         {
             "operators": [
                 {
