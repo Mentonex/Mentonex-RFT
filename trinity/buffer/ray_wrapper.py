@@ -35,7 +35,7 @@ class DBWrapper:
     """
 
     def __init__(self, storage_config: StorageConfig, config: BufferConfig) -> None:
-        self.logger = get_logger(__name__)
+        self.logger = get_logger(f"sql_{storage_config.name}")
         if storage_config.path is None:
             storage_config.path = default_storage_path(storage_config, config)
         self.engine = create_engine(storage_config.path, poolclass=NullPool)
@@ -220,7 +220,7 @@ class QueueWrapper:
     """An wrapper of a async queue."""
 
     def __init__(self, storage_config: StorageConfig, config: BufferConfig) -> None:
-        self.logger = get_logger(__name__)
+        self.logger = get_logger(f"queue_{storage_config.name}")
         self.config = config
         self.capacity = storage_config.capacity
         self.queue = QueueBuffer.get_queue(storage_config, config)

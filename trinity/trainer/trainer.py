@@ -28,7 +28,7 @@ class Trainer:
 
     def __init__(self, config: Config) -> None:
         self.config = config
-        self.logger = get_logger(__name__)
+        self.logger = get_logger(config.trainer.name, in_ray_actor=True)
         load_plugins()
         self.synchronizer = Synchronizer.get_actor(config)
         self.engine = get_trainer_wrapper(config)

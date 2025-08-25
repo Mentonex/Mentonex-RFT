@@ -32,7 +32,7 @@ class WorkflowRunner:
         auxiliary_models: Optional[List[InferenceModel]] = None,
         runner_id: Optional[int] = None,
     ) -> None:
-        self.logger = get_logger(__name__)
+        self.logger = get_logger(f"{config.explorer.name}_runner_{runner_id}", in_ray_actor=True)
         self.config = config
         self.model = model
         self.model_wrapper = ModelWrapper(

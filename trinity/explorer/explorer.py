@@ -36,7 +36,7 @@ class Explorer:
     """Responsible for exploring the taskset."""
 
     def __init__(self, config: Config):
-        self.logger = get_logger(__name__)
+        self.logger = get_logger(config.explorer.name, in_ray_actor=True)
         load_plugins()
         self.cache = CacheManager(config)
         explorer_meta = self.cache.load_explorer()

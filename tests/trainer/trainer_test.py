@@ -21,7 +21,13 @@ from tests.tools import (
 )
 from trinity.cli.launcher import bench, both, explore, train
 from trinity.common.config import Config, StorageConfig
-from trinity.common.constants import StorageType, SyncMethod, SyncStyle
+from trinity.common.constants import (
+    LOG_DIR_ENV_VAR,
+    LOG_LEVEL_ENV_VAR,
+    StorageType,
+    SyncMethod,
+    SyncStyle,
+)
 from trinity.common.models.utils import get_checkpoint_dir_with_step_num
 from trinity.manager.manager import CacheManager
 
@@ -355,12 +361,28 @@ class TestTrainerToolsSFT(BaseTrainerCase):
 
 
 def run_trainer(config: Config) -> None:
-    ray.init(namespace=config.ray_namespace)
+    ray.init(
+        namespace=config.ray_namespace,
+        runtime_env={
+            "env_vars": {
+                LOG_DIR_ENV_VAR: config.log.save_dir,
+                LOG_LEVEL_ENV_VAR: "INFO",
+            }
+        },
+    )
     train(config)
 
 
 def run_explorer(config: Config) -> None:
-    ray.init(namespace=config.ray_namespace)
+    ray.init(
+        namespace=config.ray_namespace,
+        runtime_env={
+            "env_vars": {
+                LOG_DIR_ENV_VAR: config.log.save_dir,
+                LOG_LEVEL_ENV_VAR: "INFO",
+            }
+        },
+    )
     explore(config)
 
 
@@ -487,6 +509,22 @@ class TestFullyAsyncMode(unittest.TestCase):
             )[1],
             8,
         )
+        log_files = os.listdir(os.path.join(explorer1_config.checkpoint_job_dir, "log"))
+        self.assertTrue("trainer.log" in log_files)
+        self.assertTrue("synchronizer.log" in log_files)
+        self.assertTrue("explorer1.log" in log_files)
+        self.assertTrue("explorer2.log" in log_files)
+        self.assertTrue("explorer1_runner_0.log" in log_files)
+        self.assertTrue("explorer1_runner_7.log" in log_files)
+        self.assertTrue("explorer2_runner_0.log" in log_files)
+        self.assertTrue("explorer2_runner_7.log" in log_files)
+        self.assertTrue("explorer1_experience_pipeline.log" in log_files)
+        self.assertTrue("explorer2_experience_pipeline.log" in log_files)
+        files_to_check = ["trainer.log", "synchronizer.log", "explorer1.log", "explorer2.log"]
+        for file_name in files_to_check:
+            with open(os.path.join(explorer1_config.checkpoint_job_dir, "log", file_name)) as f:
+                lines = f.readlines()
+                self.assertTrue(len(lines) > 0)
         ray.shutdown()
 
     def tearDown(self):

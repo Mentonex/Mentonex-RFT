@@ -10,7 +10,12 @@ import ray
 
 from trinity.buffer.pipelines.task_pipeline import check_and_run_task_pipeline
 from trinity.common.config import Config, load_config
-from trinity.common.constants import PLUGIN_DIRS_ENV_VAR
+from trinity.common.constants import (
+    LOG_DIR_ENV_VAR,
+    LOG_LEVEL_ENV_VAR,
+    LOG_NODE_IP_ENV_VAR,
+    PLUGIN_DIRS_ENV_VAR,
+)
 from trinity.explorer.explorer import Explorer
 from trinity.trainer.trainer import Trainer
 from trinity.utils.log import get_logger
@@ -117,15 +122,17 @@ def both(config: Config) -> None:
         logger.error(f"Explorer or Trainer failed:\n{traceback.format_exc()}")
 
 
-def run(config_path: str, dlc: bool = False, plugin_dir: str = None):
+def run(config_path: str, log_level: str = "INFO", dlc: bool = False, plugin_dir: str = None):
     config = load_config(config_path)
     config.check_and_update()
     pprint(config)
 
-    # try to run task pipeline for raw data
-    check_and_run_task_pipeline(config)
-
-    envs = {PLUGIN_DIRS_ENV_VAR: plugin_dir or ""}
+    envs = {
+        PLUGIN_DIRS_ENV_VAR: plugin_dir or "",
+        LOG_DIR_ENV_VAR: config.log.save_dir,
+        LOG_LEVEL_ENV_VAR: config.log.level,
+        LOG_NODE_IP_ENV_VAR: "1" if config.log.group_by_node else "0",
+    }
     if dlc:
         from trinity.utils.dlc_utils import setup_ray_cluster
 
@@ -138,6 +145,10 @@ def run(config_path: str, dlc: bool = False, plugin_dir: str = None):
         ray.init(
             namespace=config.ray_namespace, ignore_reinit_error=True, runtime_env={"env_vars": envs}
         )
+
+    # try to run task pipeline for raw data
+    check_and_run_task_pipeline(config)
+
     try:
         if config.mode == "explore":
             explore(config)
@@ -205,7 +216,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "run":
         # TODO: support parse all args from command line
-        run(args.config, args.dlc, args.plugin_dir)
+        run(args.config, args.log_level, args.dlc, args.plugin_dir)
     elif args.command == "studio":
         studio(args.port)
 

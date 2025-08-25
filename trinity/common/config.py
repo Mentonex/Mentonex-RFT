@@ -479,6 +479,16 @@ class ServiceConfig:
 
 
 @dataclass
+class LogConfig:
+    """Configs for logger."""
+
+    level: str = "INFO"  # default log level (DEBUG, INFO, WARNING, ERROR)
+    group_by_node: bool = False  # whether to group logs by node IP in Ray cluster
+    # ! DO NOT SET, automatically generated as <checkpoint_root_dir>/<project>/<name>/log
+    save_dir: str = ""
+
+
+@dataclass
 class Config:
     """Global Configuration"""
 
@@ -505,6 +515,7 @@ class Config:
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     synchronizer: SynchronizerConfig = field(default_factory=SynchronizerConfig)
     service: ServiceConfig = field(default_factory=ServiceConfig)
+    log: LogConfig = field(default_factory=LogConfig)
 
     def save(self, config_path: str) -> None:
         """Save config to file."""
@@ -893,6 +904,9 @@ class Config:
             for operator in self.data_processor.experience_pipeline.operators:
                 if operator.name == "data_juicer":
                     operator.args["service_config"] = self.service.data_juicer
+
+        # check log
+        self.log.save_dir = os.path.join(self.checkpoint_job_dir, "log")
 
     def flatten(self) -> Dict[str, Any]:
         """Flatten the config into a single-level dict with dot-separated keys for nested fields."""

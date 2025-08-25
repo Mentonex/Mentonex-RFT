@@ -18,7 +18,7 @@ class DataJuicerClient:
     """Client for interacting with the DataJuicer server."""
 
     def __init__(self, config: DataJuicerServiceConfig):
-        self.logger = get_logger(__name__)
+        self.logger = get_logger(__name__, in_ray_actor=True)
         self.config = config
         self.url = config.server_url
         self.session_id = None

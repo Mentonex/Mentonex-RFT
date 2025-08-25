@@ -100,7 +100,7 @@ class TensorboardMonitor(Monitor):
         self.tensorboard_dir = os.path.join(config.monitor.cache_dir, "tensorboard", role)
         os.makedirs(self.tensorboard_dir, exist_ok=True)
         self.logger = SummaryWriter(self.tensorboard_dir)
-        self.console_logger = get_logger(__name__)
+        self.console_logger = get_logger(__name__, in_ray_actor=True)
 
     def log_table(self, table_name: str, experiences_table: pd.DataFrame, step: int):
         pass
@@ -143,7 +143,7 @@ class WandbMonitor(Monitor):
             config=config,
             save_code=False,
         )
-        self.console_logger = get_logger(__name__)
+        self.console_logger = get_logger(__name__, in_ray_actor=True)
 
     def log_table(self, table_name: str, experiences_table: pd.DataFrame, step: int):
         experiences_table = wandb.Table(dataframe=experiences_table)
@@ -197,7 +197,7 @@ class MlflowMonitor(Monitor):
             },
         )
         mlflow.log_params(config.flatten())
-        self.console_logger = get_logger(__name__)
+        self.console_logger = get_logger(__name__, in_ray_actor=True)
 
     def log_table(self, table_name: str, experiences_table: pd.DataFrame, step: int):
         pass

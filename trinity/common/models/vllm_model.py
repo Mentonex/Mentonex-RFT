@@ -20,8 +20,6 @@ from trinity.common.models.utils import (
 )
 from trinity.utils.log import get_logger
 
-logger = get_logger(__name__)
-
 
 # TODO: remove V0 when V1 is stable
 class vLLMRolloutModel(InferenceModel):
@@ -242,7 +240,7 @@ class vLLMRolloutModel(InferenceModel):
         and they won't be able to be tracked by Ray anymore.
         """
         if hasattr(self.async_llm, "shutdown"):
-            logger.info("Shutting down vLLM engine")
+            self.logger.info("Shutting down vLLM engine")
             self.async_llm.shutdown()
 
     def _create_sampling_params(self, **kwargs):

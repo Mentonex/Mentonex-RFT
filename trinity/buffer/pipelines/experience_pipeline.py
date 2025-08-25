@@ -34,7 +34,7 @@ class ExperiencePipeline:
     """
 
     def __init__(self, config: Config):
-        self.logger = get_logger(__name__)
+        self.logger = get_logger(f"{config.explorer.name}_experience_pipeline", in_ray_actor=True)
         load_plugins()
         pipeline_config = config.data_processor.experience_pipeline
         buffer_config = config.buffer

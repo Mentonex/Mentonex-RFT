@@ -8,9 +8,6 @@ from trinity.buffer.buffer_reader import BufferReader
 from trinity.buffer.ray_wrapper import QueueWrapper
 from trinity.common.config import BufferConfig, StorageConfig
 from trinity.common.constants import ReadStrategy, StorageType
-from trinity.utils.log import get_logger
-
-logger = get_logger(__name__)
 
 
 class QueueReader(BufferReader):
