@@ -122,7 +122,7 @@ def both(config: Config) -> None:
         logger.error(f"Explorer or Trainer failed:\n{traceback.format_exc()}")
 
 
-def run(config_path: str, log_level: str = "INFO", dlc: bool = False, plugin_dir: str = None):
+def run(config_path: str, dlc: bool = False, plugin_dir: str = None):
     config = load_config(config_path)
     config.check_and_update()
     pprint(config)
@@ -216,7 +216,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "run":
         # TODO: support parse all args from command line
-        run(args.config, args.log_level, args.dlc, args.plugin_dir)
+        run(args.config, args.dlc, args.plugin_dir)
     elif args.command == "studio":
         studio(args.port)
 
