@@ -18,6 +18,7 @@ from trinity.common.constants import (
 )
 from trinity.explorer.explorer import Explorer
 from trinity.trainer.trainer import Trainer
+from trinity.utils.dlc_utils import setup_ray_cluster
 from trinity.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -134,8 +135,6 @@ def run(config_path: str, dlc: bool = False, plugin_dir: str = None):
         LOG_NODE_IP_ENV_VAR: "1" if config.log.group_by_node else "0",
     }
     if dlc:
-        from trinity.utils.dlc_utils import setup_ray_cluster
-
         setup_ray_cluster(namespace=config.ray_namespace, envs=envs)
     else:
         from trinity.utils.dlc_utils import is_running
