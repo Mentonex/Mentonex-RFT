@@ -135,6 +135,9 @@ class ExperiencePipeline:
         return result_metrics
 
     async def close(self) -> None:
-        await self.output.release()
+        try:
+            await self.output.release()
+        except Exception as e:
+            self.logger.error(f"Failed to release output buffer: {e}")
         for operator in self.operators:
             operator.close()

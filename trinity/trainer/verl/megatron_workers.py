@@ -87,11 +87,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
-                timeout=datetime.timedelta(
-                    seconds=self.config.get(
-                        "nccl_timeout", seconds=self.config.synchronizer.sync_timeout
-                    )
-                ),
+                timeout=datetime.timedelta(seconds=self.config.synchronizer.sync_timeout),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
             get_torch_device().set_device(rank)
@@ -696,7 +692,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
-                timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
+                timeout=datetime.timedelta(seconds=self.config.synchronizer.sync_timeout),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
             get_torch_device().set_device(rank)

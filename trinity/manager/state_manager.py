@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Data manager."""
+"""State manager."""
 import json
 import os
 
@@ -7,14 +7,14 @@ from trinity.common.config import Config, load_config
 from trinity.utils.log import get_logger
 
 
-class CacheManager:
-    """A Manager class for managing the cache dir."""
+class StateManager:
+    """A Manager class for managing the running state of Explorer and Trainer."""
 
     def __init__(self, config: Config, check_config: bool = False):
         self.logger = get_logger(__name__, in_ray_actor=True)
         self.cache_dir = config.monitor.cache_dir  # type: ignore
-        self.explorer_meta_path = os.path.join(self.cache_dir, f"{config.explorer.name}_meta.json")  # type: ignore
-        self.trainer_meta_path = os.path.join(self.cache_dir, f"{config.trainer.name}_meta.json")  # type: ignore
+        self.explorer_state_path = os.path.join(self.cache_dir, f"{config.explorer.name}_meta.json")  # type: ignore
+        self.trainer_state_path = os.path.join(self.cache_dir, f"{config.trainer.name}_meta.json")  # type: ignore
         if check_config:
             self._check_config_consistency(config)
 
@@ -34,7 +34,7 @@ class CacheManager:
                 )
 
     def save_explorer(self, current_task_index: int, current_step: int) -> None:
-        with open(self.explorer_meta_path, "w", encoding="utf-8") as f:
+        with open(self.explorer_state_path, "w", encoding="utf-8") as f:
             json.dump(
                 {"latest_task_index": current_task_index, "latest_iteration": current_step},
                 f,
@@ -42,9 +42,9 @@ class CacheManager:
             )
 
     def load_explorer(self) -> dict:
-        if os.path.exists(self.explorer_meta_path):
+        if os.path.exists(self.explorer_state_path):
             try:
-                with open(self.explorer_meta_path, "r", encoding="utf-8") as f:
+                with open(self.explorer_state_path, "r", encoding="utf-8") as f:
                     explorer_meta = json.load(f)
                 self.logger.info(
                     "----------------------------------\n"
@@ -55,17 +55,21 @@ class CacheManager:
                 )
                 return explorer_meta
             except Exception as e:
-                self.logger.error(f"Failed to load explore meta file: {e}")
+                self.logger.error(f"Failed to load explore state file: {e}")
         return {}
 
-    def save_trainer(self, current_step: int) -> None:
-        with open(self.trainer_meta_path, "w", encoding="utf-8") as f:
-            json.dump({"latest_iteration": current_step}, f, indent=2)
+    def save_trainer(self, current_exp_index: int, current_step: int) -> None:
+        with open(self.trainer_state_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {"latest_exp_index": current_exp_index, "latest_iteration": current_step},
+                f,
+                indent=2,
+            )
 
     def load_trainer(self) -> dict:
-        if os.path.exists(self.trainer_meta_path):
+        if os.path.exists(self.trainer_state_path):
             try:
-                with open(self.trainer_meta_path, "r", encoding="utf-8") as f:
+                with open(self.trainer_state_path, "r", encoding="utf-8") as f:
                     trainer_meta = json.load(f)
                 self.logger.info(
                     "----------------------------------\n"
@@ -76,5 +80,5 @@ class CacheManager:
                 )
                 return trainer_meta
             except Exception as e:
-                self.logger.warning(f"Failed to load trainer meta file: {e}")
+                self.logger.warning(f"Failed to load trainer state file: {e}")
         return {}

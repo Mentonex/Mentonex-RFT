@@ -81,6 +81,9 @@ class StorageConfig:
     path: Optional[str] = None
     repeat_times: Optional[int] = None
 
+    # For continuing training
+    index: int = 0
+
     # used for multi-modal data
     mm_data_kwargs: dict = field(default_factory=dict)
 
@@ -88,7 +91,6 @@ class StorageConfig:
     split: str = "train"
     subset_name: Optional[str] = None
     format: FormatConfig = field(default_factory=FormatConfig)
-    index: int = 0
 
     # used for StorageType.QUEUE
     capacity: int = 10000

@@ -25,7 +25,7 @@ from trinity.common.constants import (
 )
 from trinity.common.models import create_inference_models
 from trinity.explorer.scheduler import Scheduler
-from trinity.manager.manager import CacheManager
+from trinity.manager.state_manager import StateManager
 from trinity.manager.synchronizer import Synchronizer
 from trinity.utils.log import get_logger
 from trinity.utils.monitor import MONITOR, gather_metrics
@@ -38,16 +38,16 @@ class Explorer:
     def __init__(self, config: Config):
         self.logger = get_logger(config.explorer.name, in_ray_actor=True)
         load_plugins()
-        self.cache = CacheManager(config)
-        explorer_meta = self.cache.load_explorer()
-        self.explore_step_num = explorer_meta.get("latest_iteration", 0)
+        self.state = StateManager(config)
+        explorer_state = self.state.load_explorer()
+        self.explore_step_num = explorer_state.get("latest_iteration", 0)
         self.last_sync_step = self.explore_step_num if self.explore_step_num > 0 else -1
         self.synchronizer = Synchronizer.get_actor(config)
         self.config = config
         self.algorithm_manager = AlgorithmManager(config)
         self.models, self.auxiliary_models = create_inference_models(config)
         self.experience_pipeline = self._init_experience_pipeline()
-        self.config.buffer.explorer_input.taskset.index = explorer_meta.get("latest_task_index", 0)
+        self.config.buffer.explorer_input.taskset.index = explorer_state.get("latest_task_index", 0)
         self.taskset = get_buffer_reader(
             self.config.buffer.explorer_input.taskset, self.config.buffer
         )
@@ -326,7 +326,7 @@ class Explorer:
             )
 
         # save explore checkpoint
-        self.cache.save_explorer(
+        self.state.save_explorer(
             current_step=self.explore_step_num,
             current_task_index=self.explore_step_num * self.config.buffer.batch_size,
         )
@@ -345,7 +345,6 @@ class Explorer:
     async def _finish_explore_step(self, step: int, model_version: int) -> None:
         statuses, exps = await self.scheduler.get_results(batch_id=step)
         metric = {"rollout/model_version": model_version}
-        # TODO: avoid blocking
         pipeline_metrics = await self.experience_pipeline.process.remote(exps)
         metric.update(pipeline_metrics)
         if statuses:

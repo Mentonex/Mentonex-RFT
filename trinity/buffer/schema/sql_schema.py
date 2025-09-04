@@ -45,6 +45,7 @@ class ExperienceModel(Base):  # type: ignore
     reward = Column(Float, nullable=True)
     # serialized experience object
     experience_bytes = Column(LargeBinary, nullable=True)
+    consumed = Column(Integer, default=0, index=True)
 
     def to_experience(self) -> Experience:
         """Load the experience from the database."""

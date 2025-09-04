@@ -30,7 +30,7 @@ from trinity.common.constants import (
     SyncStyle,
 )
 from trinity.common.models.utils import get_checkpoint_dir_with_step_num
-from trinity.manager.manager import CacheManager
+from trinity.manager.state_manager import StateManager
 
 
 class BaseTrainerCase(RayUnittestBase):
@@ -266,7 +266,7 @@ class TestTrainerSFTWarmupGSM8K(BaseTrainerCase):
         self.config.buffer.trainer_input.experience_buffer = StorageConfig(
             name="test_sql_storage",
             max_read_timeout=20,
-            storage_type=StorageType.SQL,
+            storage_type=StorageType.QUEUE,
             max_retry_times=10,
         )
         self.config.check_and_update()
@@ -516,10 +516,10 @@ class TestFullyAsyncMode(unittest.TestCase):
         rollout_metrics = parser.metric_list("rollout")
         self.assertEqual(parser.metric_max_step(rollout_metrics[0]), 4)
         # check the checkpoint
-        explorer1_cache = CacheManager(explorer1_config)
+        explorer1_cache = StateManager(explorer1_config)
         cache = explorer1_cache.load_explorer()
         self.assertEqual(cache["latest_iteration"], 4)
-        explorer2_cache = CacheManager(explorer2_config)
+        explorer2_cache = StateManager(explorer2_config)
         cache = explorer2_cache.load_explorer()
         self.assertEqual(cache["latest_iteration"], 4)
         # check the lastest checkpoint
