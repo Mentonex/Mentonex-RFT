@@ -1,6 +1,7 @@
 import unittest
 
 import torch
+from openai import BadRequestError
 from parameterized import parameterized_class
 from transformers import AutoTokenizer
 
@@ -91,20 +92,15 @@ CHAT_TEMPLATE = r"""
     (
         "tensor_parallel_size",
         "engine_num",
-        "use_v1",
         "repeat_times",
         "enable_history",
         "use_async",
         "max_model_len",
     ),
     [
-        (1, 2, False, 2, True, False, None),
-        (1, 2, False, 2, True, True, 20),
-        (1, 2, False, 2, True, False, 20),
-        (2, 2, False, 1, False, True, None),
-        (2, 2, True, 2, True, False, None),
-        (1, 2, True, 1, False, True, None),
-        (2, 1, True, 3, True, True, None),
+        (2, 2, 2, True, False, None),
+        (1, 2, 1, False, True, None),
+        (2, 1, 3, True, True, None),
     ],
 )
 class ModelWrapperTest(RayUnittestBaseAysnc):
@@ -116,7 +112,6 @@ class ModelWrapperTest(RayUnittestBaseAysnc):
         self.config.model.max_model_len = self.max_model_len
         self.config.explorer.rollout_model.engine_num = self.engine_num
         self.config.explorer.rollout_model.tensor_parallel_size = self.tensor_parallel_size
-        self.config.explorer.rollout_model.use_v1 = self.use_v1
         self.config.explorer.rollout_model.chat_template = CHAT_TEMPLATE
         self.config.algorithm.repeat_times = self.repeat_times
         self.config.explorer.rollout_model.enable_history = self.enable_history
@@ -220,6 +215,61 @@ class ModelWrapperTest(RayUnittestBaseAysnc):
         if self.config.explorer.rollout_model.enable_history:
             history_experiences = self.model_wrapper.extract_experience_from_history()
             self.assertTrue(len(history_experiences) == 0)
+
+
+@parameterized_class(
+    (
+        "max_model_len",
+        "max_prompt_tokens",
+        "max_response_tokens",
+    ),
+    [
+        (20, 19, None),
+        (20, None, 1),
+    ],
+)
+class TestModelLen(RayUnittestBase):
+    def setUp(self):
+        self.config = get_template_config()
+        self.config.mode = "explore"
+        self.config.model.model_path = get_model_path()
+        self.config.model.max_model_len = self.max_model_len
+        self.config.model.max_prompt_tokens = self.max_prompt_tokens
+        self.config.model.max_response_tokens = self.max_response_tokens
+        self.config.explorer.rollout_model.enable_openai_api = True
+        self.config.check_and_update()
+
+        self.engines, self.auxiliary_engines = create_inference_models(self.config)
+        self.model_wrapper = ModelWrapper(self.engines[0], model_type="vllm", enable_history=True)
+
+    def test_model_len(self):
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What's the weather like today?"},
+        ]
+        response = self.model_wrapper.chat(messages)
+        self.assertEqual(len(response), 1)
+        self.assertEqual(len(response[0].tokens), self.max_model_len)
+        exps = self.model_wrapper.extract_experience_from_history()
+        self.assertEqual(len(exps), 1)
+        self.assertEqual(len(exps[0].tokens), self.max_model_len)
+
+        # max_prompt_tokens and max_response_tokens do not work with openai api
+        openai_client = self.model_wrapper.get_openai_client()
+        model_id = openai_client.models.list().data[0].id
+        with self.assertRaises(BadRequestError):
+            # the prompt is longer than max_model_len
+            openai_client.chat.completions.create(model=model_id, messages=messages, n=1)
+        exps = self.model_wrapper.extract_experience_from_history()
+        self.assertEqual(len(exps), 0)
+
+        response = openai_client.chat.completions.create(model=model_id, messages=messages[1:], n=1)
+        self.assertEqual(len(response.choices), 1)
+        print(response.choices[0].message.content)
+        exps = self.model_wrapper.extract_experience_from_history()
+        self.assertEqual(len(exps), 1)
+        # only generate max_model_len - prompt_len tokens
+        self.assertEqual(len(exps[0].tokens), self.max_model_len)
 
 
 class TestAPIServer(RayUnittestBase):

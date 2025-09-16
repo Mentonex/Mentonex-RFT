@@ -223,11 +223,21 @@ class ModelConfig:
     # source model path
     model_path: str = ""
     critic_model_path: str = ""
-    max_model_len: Optional[int] = None
-    max_prompt_tokens: Optional[int] = None
-    max_response_tokens: Optional[int] = None
-    min_response_tokens: int = 1
+
     custom_chat_template: Optional[str] = None
+
+    # the total number of tokens the model can handle
+    max_model_len: Optional[int] = None
+
+    # Note: the following fields are only for the `chat`/`generate` methods in `InferenceModel`
+    # if you are using openai API, please set them when calling the API.
+
+    # the maximum number of tokens for the prompt
+    max_prompt_tokens: Optional[int] = None
+    # the maximum number of tokens for the response
+    max_response_tokens: Optional[int] = None
+    # the minimum number of tokens for the response
+    min_response_tokens: int = 1
 
 
 @dataclass
@@ -798,6 +808,89 @@ class Config:
         check_and_set("kl_penalty_fn", KL_FN, "kl_penalty_fn_args")
         check_and_set("entropy_loss_fn", ENTROPY_LOSS_FN, "entropy_loss_fn_args")
 
+    def _check_model(self) -> None:
+        if not self.model.critic_model_path:
+            self.model.critic_model_path = self.model.model_path
+
+        # check max_model_len, max_prompt_tokens, max_response_tokens
+
+        # if all three are set, check if they are valid
+        if (
+            self.model.max_model_len is not None
+            and self.model.max_prompt_tokens is not None
+            and self.model.max_response_tokens is not None
+        ):
+            if (
+                self.model.max_prompt_tokens + self.model.max_response_tokens
+                > self.model.max_model_len
+            ):
+                raise ValueError(
+                    f"`max_prompt_tokens` + `max_response_tokens` ({self.model.max_prompt_tokens} + {self.model.max_response_tokens}) "
+                    f"exceeds `max_model_len` ({self.model.max_model_len}). Please adjust them accordingly."
+                )
+
+        # check max_model_len first
+        if self.model.max_model_len is None:
+            if (
+                self.model.max_prompt_tokens is not None
+                and self.model.max_response_tokens is not None
+            ):
+                self.model.max_model_len = (
+                    self.model.max_prompt_tokens + self.model.max_response_tokens
+                )
+                logger.warning(
+                    f"`max_model_len` is set to {self.model.max_model_len} from `max_prompt_tokens` and `max_response_tokens`."
+                )
+            else:
+                from transformers import AutoConfig, AutoTokenizer
+                from transformers.tokenization_utils_base import LARGE_INTEGER
+
+                tokenizer = AutoTokenizer.from_pretrained(self.model.model_path)
+                config = AutoConfig.from_pretrained(self.model.model_path)
+                max_model_len = min(
+                    getattr(tokenizer, "model_max_length", LARGE_INTEGER),
+                    getattr(config, "max_position_embeddings", LARGE_INTEGER),
+                )
+                if max_model_len >= LARGE_INTEGER:
+                    max_model_len = MAX_MODEL_LEN
+                    logger.warning(
+                        f"Failed to get `max_model_len` from model {self.model.model_path}, use {MAX_MODEL_LEN} instead."
+                    )
+                self.model.max_model_len = max_model_len
+
+        # both max_prompt_tokens and max_response_tokens are None
+        if self.model.max_prompt_tokens is None and self.model.max_response_tokens is None:
+            # default to max_model_len / 2
+            self.model.max_prompt_tokens = self.model.max_model_len // 2
+            self.model.max_response_tokens = self.model.max_model_len - self.model.max_prompt_tokens
+            logger.warning(
+                f"`max_prompt_tokens` and `max_response_tokens` are not set, set to {self.model.max_prompt_tokens} and {self.model.max_response_tokens} respectively."
+            )
+
+        # only max_prompt_tokens is None
+        if self.model.max_prompt_tokens is None and self.model.max_response_tokens is not None:
+            self.model.max_response_tokens = min(
+                self.model.max_response_tokens, self.model.max_model_len - 1
+            )
+            self.model.max_prompt_tokens = self.model.max_model_len - self.model.max_response_tokens
+            logger.warning(
+                f"`max_prompt_tokens` is set to {self.model.max_prompt_tokens}, `max_response_tokens` is set to {self.model.max_response_tokens}."
+            )
+
+        # only max_response_tokens is None
+        if self.model.max_response_tokens is None and self.model.max_prompt_tokens is not None:
+            self.model.max_prompt_tokens = min(
+                self.model.max_prompt_tokens, self.model.max_model_len - 1
+            )
+            self.model.max_response_tokens = self.model.max_model_len - self.model.max_prompt_tokens
+            logger.warning(
+                f"`max_response_tokens` is set to {self.model.max_response_tokens}, `max_prompt_tokens` is set to {self.model.max_prompt_tokens}."
+            )
+
+        if self.model.min_response_tokens >= self.model.max_response_tokens:  # type: ignore [operator]
+            self.model.min_response_tokens = max(self.model.max_response_tokens - 1, 0)  # type: ignore [operator]
+            logger.warning(f"`min_response_tokens` is set to {self.model.min_response_tokens}.")
+
     def __iter__(self):
         """Iterate over configs with each stage applied in order.
 
@@ -848,47 +941,27 @@ class Config:
             logger.warning(f"Experiment [{ori_name}] already exists, renamed as {self.name}.")
         os.makedirs(self.checkpoint_job_dir, exist_ok=True)
 
-        # check and update model path
-        if self.explorer is not None:
-            self.explorer.rollout_model.model_path = self.model.model_path
-        if not self.model.critic_model_path:
-            self.model.critic_model_path = self.model.model_path
+        # check model
+        self._check_model()
 
         # check explorer
-        if self.model.max_model_len is None:
-            from transformers import AutoConfig, AutoTokenizer
-            from transformers.tokenization_utils_base import LARGE_INTEGER
-
-            tokenizer = AutoTokenizer.from_pretrained(self.model.model_path)
-            config = AutoConfig.from_pretrained(self.model.model_path)
-            max_model_len = min(
-                getattr(tokenizer, "model_max_length", LARGE_INTEGER),
-                getattr(config, "max_position_embeddings", LARGE_INTEGER),
-            )
-            if max_model_len >= LARGE_INTEGER:
-                max_model_len = MAX_MODEL_LEN
-                logger.warning(
-                    f"Failed to get `max_model_len` from model {self.model.model_path}, use {MAX_MODEL_LEN} instead."
-                )
-            self.model.max_model_len = max_model_len
-        if (
-            self.model.max_prompt_tokens is None
-            or self.model.max_prompt_tokens >= self.model.max_model_len
-        ):
-            self.model.max_prompt_tokens = self.model.max_model_len - 1
-            logger.warning(f"`max_prompt_tokens` is set to {self.model.max_prompt_tokens}.")
-        if (
-            self.model.max_response_tokens is None
-            or self.model.max_response_tokens > self.model.max_model_len
-        ):
-            self.model.max_response_tokens = self.model.max_model_len
-            logger.warning(f"`max_response_tokens` is set to {self.model.max_response_tokens}.")
-        if self.explorer.rollout_model.max_model_len is None:
+        if self.explorer is not None:
+            self.explorer.rollout_model.model_path = self.model.model_path
             self.explorer.rollout_model.max_model_len = self.model.max_model_len
-        if self.explorer.rollout_model.max_prompt_tokens is None:
             self.explorer.rollout_model.max_prompt_tokens = self.model.max_prompt_tokens
-        if self.explorer.rollout_model.max_response_tokens is None:
             self.explorer.rollout_model.max_response_tokens = self.model.max_response_tokens
+            self.explorer.rollout_model.min_response_tokens = self.model.min_response_tokens
+            for aux_model in self.explorer.auxiliary_models:
+                if not aux_model.model_path:
+                    raise ValueError("auxiliary model's model_path is required.")
+                if aux_model.max_model_len is None:
+                    aux_model.max_model_len = self.model.max_model_len
+                if aux_model.max_prompt_tokens is None:
+                    aux_model.max_prompt_tokens = self.model.max_prompt_tokens
+                if aux_model.max_response_tokens is None:
+                    aux_model.max_response_tokens = self.model.max_response_tokens
+                if aux_model.min_response_tokens is None:
+                    aux_model.min_response_tokens = self.model.min_response_tokens
 
         # check synchronizer
         self.synchronizer.ray_namespace = self.ray_namespace

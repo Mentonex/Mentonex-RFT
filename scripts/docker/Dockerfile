@@ -5,7 +5,7 @@
 # docker run -it --gpus all --shm-size="64g" --rm -v $PWD:/workspace -v <root_path_of_data_and_checkpoints>:/data trinity-rft:latest
 
 
-FROM nvcr.io/nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+FROM nvcr.io/nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
 
 WORKDIR /workspace
 

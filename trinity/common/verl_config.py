@@ -409,6 +409,28 @@ class veRLConfig:
         self.critic.rollout_n = self.actor_rollout_ref.rollout.n
         self.critic.optim.total_training_steps = self.trainer.total_training_steps
 
+        if (
+            self.actor_rollout_ref.actor.ppo_max_token_len_per_gpu  # type: ignore [operator]
+            * self.actor_rollout_ref.actor.ulysses_sequence_parallel_size
+            < config.model.max_model_len
+        ):
+            self.actor_rollout_ref.actor.ppo_max_token_len_per_gpu = math.ceil(
+                config.model.max_model_len  # type: ignore [operator]
+                / self.actor_rollout_ref.actor.ulysses_sequence_parallel_size
+            )
+            logger.warning(
+                f"Warning: actor.ppo_max_token_len_per_gpu is automatically set to {self.actor_rollout_ref.actor.ppo_max_token_len_per_gpu} to match model.max_model_len ({config.model.max_model_len})"
+            )
+        if (
+            self.critic.ppo_max_token_len_per_gpu * self.critic.ulysses_sequence_parallel_size  # type: ignore [operator]
+            < config.model.max_model_len
+        ):
+            self.critic.ppo_max_token_len_per_gpu = math.ceil(
+                config.model.max_model_len / self.critic.ulysses_sequence_parallel_size  # type: ignore [operator]
+            )
+            logger.warning(
+                f"Warning: critic.ppo_max_token_len_per_gpu is automatically set to {self.critic.ppo_max_token_len_per_gpu} to match model.max_model_len ({config.model.max_model_len})"
+            )
         if config.trainer.actor_grad_clip is not None:
             self.actor_rollout_ref.actor.grad_clip = config.trainer.actor_grad_clip
 

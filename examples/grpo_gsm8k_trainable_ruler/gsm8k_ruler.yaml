@@ -8,8 +8,8 @@ algorithm:
   repeat_times: 8
 model:
   model_path: ${oc.env:TRINITY_MODEL_PATH,Qwen/Qwen2.5-1.5B-Instruct}
-  max_prompt_tokens: 12288
-  max_response_tokens: 12288
+  max_prompt_tokens: 8000
+  max_response_tokens: 8000
   max_model_len: 16000  # slightly smaller than ppo_max_token_len_per_gpu (16384)
 cluster:
   node_num: 1

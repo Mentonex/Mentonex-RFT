@@ -7,11 +7,13 @@ import aiohttp
 import ray
 import torch
 import vllm
+from packaging.version import parse as parse_version
 from transformers import AutoProcessor
 from vllm.sampling_params import RequestOutputKind
 
 from trinity.common.config import InferenceModelConfig
 from trinity.common.experience import Experience
+from trinity.common.models.api.vllm_patch import get_vllm_version
 from trinity.common.models.mm_utils import (
     attach_images_to_messages,
     build_multi_modal_inputs,
@@ -21,7 +23,7 @@ from trinity.common.models.utils import get_action_mask_method
 from trinity.utils.log import get_logger
 
 
-# TODO: remove V0 when V1 is stable
+# V0 engine is deprecated since vLLM v0.10.2, related code will be removed in the future.
 class vLLMRolloutModel(InferenceModel):
     """Wrapper around the vLLM engine to handle async requests.
 
@@ -50,7 +52,7 @@ class vLLMRolloutModel(InferenceModel):
             n=1,
             temperature=0.0,
             max_tokens=config.max_response_tokens,
-            min_tokens=1,
+            min_tokens=config.min_response_tokens,
             truncate_prompt_tokens=config.max_prompt_tokens,
             skip_special_tokens=True,
             include_stop_str_in_output=False,
@@ -73,11 +75,14 @@ class vLLMRolloutModel(InferenceModel):
             dtype=config.dtype,
             trust_remote_code=True,
             task="generate",
-            disable_log_requests=True,
             gpu_memory_utilization=config.gpu_memory_utilization,
             enable_chunked_prefill=config.enable_chunked_prefill,
             # max_num_batched_tokens=256, # you can further set this parameter to reduce the vllm peak memory usage
         )
+        if get_vllm_version() > parse_version("0.10.0"):
+            engine_args.enable_log_requests = False
+        else:
+            engine_args.disable_log_requests = True
         self.async_llm = vllm.AsyncLLMEngine.from_engine_args(engine_args)
         self.processor = None
         self.tokenizer = None
@@ -286,7 +291,8 @@ class vLLMRolloutModel(InferenceModel):
         to align with the actual response length.
 
         Args:
-            token_ids (List[int]): The input token ids (seq_length).
+            token_ids (List[int]): The input token ids (seq_length). Please make sure the length of
+                it does not exceed `max_model_len - 1`.
 
         Returns:
             A tensor of logprobs (seq_length - 1).
