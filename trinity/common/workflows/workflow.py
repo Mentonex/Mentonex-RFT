@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import Any, List, Optional, Type, Union
 
@@ -75,7 +74,7 @@ class Task(dict):
         return self.raw_task  # type: ignore
 
 
-class Workflow(ABC):
+class Workflow:
     """The base workflow class.
 
     A workflow is a runnable object which generates a list of experiences.
@@ -157,10 +156,6 @@ class MultiTurnWorkflow(Workflow):
     def set_repeat_times(self, repeat_times, run_id_base):
         self.repeat_times = repeat_times
         self.run_id_base = run_id_base
-
-    @abstractmethod
-    def run(self) -> List[Experience]:
-        """Run workflow and return a list of experiences."""
 
     def process_messages_to_experience(self, messages, reward, info={}) -> Experience:
         converted_experience = self.model.convert_messages_to_experience(messages)
