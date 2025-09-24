@@ -22,6 +22,7 @@ from trinity.common.constants import (
 )
 from trinity.utils.annotations import Experimental
 from trinity.utils.log import get_logger
+from trinity.utils.lora_utils import create_dummy_lora
 
 logger = get_logger(__name__)
 
@@ -79,6 +80,19 @@ class GenerationConfig:
     # repeat each task for `n` times
     # ! DO NOT SET in `buffer.explorer_input.taskset.rollout_args`
     n: int = 1
+
+
+@dataclass
+class LoRAConfig:
+    """LoRA config, only effective for rollout model, not for auxiliary models."""
+
+    name: Optional[str] = None
+    path: Optional[str] = None
+    base_model_name: Optional[str] = None
+    lora_rank: int = 32
+    lora_alpha: int = 32
+    lora_dtype: str = "auto"
+    target_modules: str = "all-linear"
 
 
 @dataclass
@@ -244,6 +258,11 @@ class ModelConfig:
     # the minimum number of tokens for the response
     min_response_tokens: int = 1
 
+    # lora config
+    lora_configs: Optional[List[LoRAConfig]] = None
+    fully_sharded_loras: bool = False
+    max_cpu_loras: Optional[int] = None
+
 
 @dataclass
 class InferenceModelConfig:
@@ -293,6 +312,11 @@ class InferenceModelConfig:
 
     # ! DO NOT SET
     bundle_indices: str = ""
+
+    # ! DO NOT SET, automatically set from model.lora_configs
+    enable_lora: bool = False
+    lora_modules: Optional[List[Dict]] = None
+    lora_kwargs: Optional[dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -903,11 +927,17 @@ class Config:
         if not self.continue_from_checkpoint and (
             os.path.exists(self.checkpoint_job_dir) and os.listdir(self.checkpoint_job_dir)
         ):
-            ori_name = self.name
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            self.name = f"{ori_name}_{timestamp}"
-            self.checkpoint_job_dir = f"{self.checkpoint_job_dir}_{timestamp}"
-            logger.warning(f"Experiment [{ori_name}] already exists, renamed as {self.name}.")
+            if self.mode == "bench":
+                logger.warning(
+                    "For bench mode, `continue_from_checkpoint` is set as `true` to enable using existing checkpoints."
+                )
+                self.continue_from_checkpoint = True
+            else:
+                ori_name = self.name
+                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                self.name = f"{ori_name}_{timestamp}"
+                self.checkpoint_job_dir = f"{self.checkpoint_job_dir}_{timestamp}"
+                logger.warning(f"Experiment [{ori_name}] already exists, renamed as {self.name}.")
         os.makedirs(self.checkpoint_job_dir, exist_ok=True)
 
         # check model
@@ -927,6 +957,45 @@ class Config:
                 set_if_none(aux_model, "max_prompt_tokens", self.model.max_prompt_tokens)
                 set_if_none(aux_model, "max_response_tokens", self.model.max_response_tokens)
                 set_if_none(aux_model, "min_response_tokens", self.model.min_response_tokens)
+
+            # for lora configs
+            if self.model.lora_configs is not None:
+                self.explorer.rollout_model.enable_lora = True
+                if len(self.model.lora_configs) > 1:
+                    raise ValueError("Only one lora adapter is supported for now.")
+                if self.model.lora_configs[0].path is None:
+                    logger.info("Creating dummy lora, since no lora_path is provided.")
+                    lora_path = create_dummy_lora(
+                        model_path=self.model.model_path,
+                        checkpoint_job_dir=self.checkpoint_job_dir,
+                        lora_rank=self.model.lora_configs[0].lora_rank,
+                        lora_alpha=self.model.lora_configs[0].lora_alpha,
+                        target_modules=self.model.lora_configs[0].target_modules,
+                    )
+                    self.model.lora_configs[0].path = lora_path
+                self.explorer.rollout_model.lora_modules = [
+                    {
+                        "lora_int_id": i + 1,
+                        "lora_name": cfg.name,
+                        "lora_path": cfg.path,
+                        "base_model_name": cfg.base_model_name,
+                    }
+                    for i, cfg in enumerate(self.model.lora_configs)
+                ]
+                self.explorer.rollout_model.lora_kwargs = {
+                    "max_loras": len(self.model.lora_configs),
+                    "max_lora_rank": max(
+                        (
+                            model_config.lora_rank
+                            for model_config in self.model.lora_configs
+                            if model_config.lora_rank > 0
+                        ),
+                        default=0,
+                    ),
+                    "default_lora_path": os.path.join(
+                        self.checkpoint_job_dir, "global_step_0", "actor", "lora_adapter"
+                    ),  # will be poped later
+                }
 
         # check synchronizer
         self.synchronizer.ray_namespace = self.ray_namespace
@@ -965,7 +1034,7 @@ class Config:
         # check buffer
         self._check_buffer()
         # check and update trainer
-        if self.mode in ["train", "both"]:
+        if self.mode in ["train", "both", "bench"]:
             if self.trainer.trainer_type == "verl":
                 if self.trainer.trainer_config:
                     from trinity.common.verl_config import veRLConfig

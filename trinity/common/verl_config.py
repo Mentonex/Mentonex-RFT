@@ -33,6 +33,12 @@ class ActorModel:
     fused_kernel_options: FusedKernelOptions = field(default_factory=FusedKernelOptions)
     custom_chat_template: Optional[str] = None
     enable_activation_offload: bool = False
+    use_shm: bool = False
+
+    # lora configs
+    lora_rank: int = 0  # The rank of the LoRA model, default to 0. If lora_rank > 0, LoRA module is enabled in trainer
+    lora_alpha: int = 32
+    target_modules: Optional[str] = "all-linear"
 
 
 @dataclass
@@ -187,8 +193,10 @@ class Rollout:
     multi_turn: _MultiTurn = field(default_factory=_MultiTurn)
     temperature: float = 1.0
     n: int = 1  # > 1 for grpo
+    log_prob_use_dynamic_bsz: bool = True
     log_prob_micro_batch_size: Optional[int] = None
-    log_prob_micro_batch_size_per_gpu: int = 1
+    log_prob_micro_batch_size_per_gpu: Optional[int] = None
+    log_prob_max_token_len_per_gpu: Optional[int] = None
 
 
 @dataclass
@@ -435,6 +443,24 @@ class veRLConfig:
         if config.trainer.actor_grad_clip is not None:
             self.actor_rollout_ref.actor.grad_clip = config.trainer.actor_grad_clip
 
+        # LoRA related config
+        if config.model.lora_configs is not None:
+            self.actor_rollout_ref.model.lora_rank = config.model.lora_configs[0].lora_rank
+            self.actor_rollout_ref.model.lora_alpha = config.model.lora_configs[0].lora_alpha
+            self.actor_rollout_ref.model.target_modules = config.model.lora_configs[
+                0
+            ].target_modules
+            if self.actor_rollout_ref.actor.strategy not in ["fsdp", "fsdp2"]:
+                logger.warning(
+                    f"Lora is only supported for fsdp and fsdp2, but got {self.actor_rollout_ref.actor.strategy} instead, changed to fsdp."
+                )
+                self.actor_rollout_ref.actor.strategy = "fsdp"
+            if self.critic.strategy not in ["fsdp", "fsdp2"]:
+                logger.warning(
+                    f"Lora is only supported for fsdp and fsdp2, but got {self.critic.strategy} instead, changed to fsdp."
+                )
+                self.critic.strategy = "fsdp"
+
         # Algorithm related config
         self.actor_rollout_ref.actor.use_kl_loss = config.algorithm.kl_loss_fn != "none"
         self.algorithm.use_kl_in_reward = config.algorithm.kl_penalty_fn != "none"
@@ -449,6 +475,25 @@ class veRLConfig:
             self.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu *= 2
             if self.actor_rollout_ref.rollout.n != 2:
                 self.actor_rollout_ref.rollout.n = 2
+
+        # check rollout config (only works for lora)
+        self.actor_rollout_ref.rollout.n = config.algorithm.repeat_times
+        self.actor_rollout_ref.rollout.log_prob_use_dynamic_bsz = (
+            self.actor_rollout_ref.actor.use_dynamic_bsz
+        )
+        if self.actor_rollout_ref.rollout.log_prob_micro_batch_size is None:
+            self.actor_rollout_ref.rollout.log_prob_micro_batch_size = (
+                self.actor_rollout_ref.actor.ppo_micro_batch_size
+            )
+        if self.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu is None:
+            self.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu = (
+                self.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
+            )
+        if self.actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu is None:
+            self.actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu = (
+                self.actor_rollout_ref.actor.ppo_max_token_len_per_gpu
+            )
+
         # TODO: check other fields
         self.enable_preview = config.trainer.enable_preview
 

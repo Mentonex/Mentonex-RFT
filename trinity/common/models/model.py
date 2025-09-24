@@ -10,6 +10,7 @@ import openai
 import ray
 import torch
 from torch import Tensor
+from vllm.lora.request import LoRARequest
 
 from trinity.common.constants import RunningStatus
 from trinity.common.experience import Experience
@@ -77,13 +78,20 @@ def _history_recorder(func):
 class ModelWrapper:
     """A wrapper for the InferenceModel Ray Actor"""
 
-    def __init__(self, model: Any, engine_type: str = "vllm", enable_history: bool = False):
+    def __init__(
+        self,
+        model: Any,
+        engine_type: str = "vllm",
+        enable_lora: bool = False,
+        enable_history: bool = False,
+    ):
         assert engine_type.startswith("vllm"), "Only vLLM model is supported for now."
         self.model = model
         self.api_address: str = None
         self.openai_client: openai.OpenAI = None
         self.openai_async_client: openai.AsyncOpenAI = None
         self.logger = get_logger(__name__)
+        self.enable_lora = enable_lora
         self.enable_history = enable_history
         self.history = []
         self.status = RunningStatus.RUNNING
@@ -124,14 +132,18 @@ class ModelWrapper:
     @_history_recorder
     def generate(self, prompts: List[str], **kwargs) -> List[Experience]:
         """Generate a list of experiences from a list of prompts."""
-        results = ray.get([self.model.generate.remote(prompt, **kwargs) for prompt in prompts])
+        lora_request = self.get_lora_request()
+        results = ray.get(
+            [self.model.generate.remote(prompt, lora_request, **kwargs) for prompt in prompts]
+        )
         return [exp for exps in results for exp in exps]
 
     @_history_recorder
     async def generate_async(self, prompts: List[str], **kwargs) -> List[Experience]:
         """Generate a list of experiences from a list of prompts in async."""
+        lora_request = await self.get_lora_request_async()
         results = await asyncio.gather(
-            *[self.model.generate.remote(prompt, **kwargs) for prompt in prompts]
+            *[self.model.generate.remote(prompt, lora_request, **kwargs) for prompt in prompts]
         )
         return [exp for exps in results for exp in exps]
 
@@ -163,12 +175,14 @@ class ModelWrapper:
     @_history_recorder
     def chat(self, messages: List[dict], **kwargs) -> List[Experience]:
         """Generate a list of experiences from a list of messages."""
-        return ray.get(self.model.chat.remote(messages, **kwargs))
+        lora_request = self.get_lora_request()
+        return ray.get(self.model.chat.remote(messages, lora_request, **kwargs))
 
     @_history_recorder
     async def chat_async(self, messages: List[dict], **kwargs) -> List[Experience]:
         """Generate a list of experiences from a list of messages in async."""
-        return await self.model.chat.remote(messages, **kwargs)
+        lora_request = await self.get_lora_request_async()
+        return await self.model.chat.remote(messages, lora_request, **kwargs)
 
     @_history_recorder
     def chat_mm(self, messages: List[dict], raw_mm_data: dict, **kwargs) -> List[Experience]:
@@ -205,6 +219,18 @@ class ModelWrapper:
     async def model_version_async(self) -> int:
         """Get the version of the model."""
         return await self.model.get_model_version.remote()
+
+    def get_lora_request(self) -> Optional[LoRARequest]:
+        if self.enable_lora:
+            return ray.get(self.model.get_lora_request.remote())
+        else:
+            return None
+
+    async def get_lora_request_async(self) -> Optional[LoRARequest]:
+        if self.enable_lora:
+            return await self.model.get_lora_request.remote()
+        else:
+            return None
 
     def get_openai_client(self) -> openai.OpenAI:
         """Get the openai client.
