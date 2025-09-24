@@ -2,6 +2,8 @@ import json
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
+import transformers
+
 from trinity.common.config import FormatConfig, StorageConfig
 from trinity.common.constants import PromptType
 from trinity.common.experience import Experience
@@ -99,16 +101,26 @@ class SFTFormatter(ExperienceFormatter):
         }
     """
 
-    def __init__(self, tokenizer, format_config: FormatConfig):
+    def __init__(self, tokenizer_path: str, format_config: FormatConfig):
         self.logger = get_logger("sft_dataset_formatter", in_ray_actor=True)
-        self.tokenizer = tokenizer
         self.prompt_type = format_config.prompt_type
         self.enable_concatenated_multi_turn = format_config.enable_concatenated_multi_turn
-        self.chat_template = format_config.chat_template or tokenizer.chat_template
+        self.tools_key = format_config.tools_key
+        self.image_key = format_config.image_key
+        self.video_key = format_config.video_key
+        if self.image_key is not None or self.video_key is not None:
+            assert (
+                self.enable_concatenated_multi_turn is False
+            ), "Concatenated multi-turn not supported for multi-modal data yet."
+            self.processor = transformers.AutoProcessor.from_pretrained(tokenizer_path)
+            self.tokenizer = self.processor.tokenizer
+        else:
+            self.processor = None
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_path)
+        self.chat_template = format_config.chat_template or self.tokenizer.chat_template
         # For messages type
         if self.prompt_type == PromptType.MESSAGES:
             self.messages_key = format_config.messages_key
-            self.tools_key = format_config.tools_key
             if format_config.enable_concatenated_multi_turn:
                 self.action_mask_method = get_action_mask_method(self.chat_template)
         # For plaintext type
@@ -123,27 +135,20 @@ class SFTFormatter(ExperienceFormatter):
 
     def _messages_to_experience(
         self,
-        messages: List[Dict] | str,  # or could be str from json dumps
-        tools: Optional[List[Dict] | str] = None,  # or could also be str from json dumps
+        messages: List[Dict],
+        tools: Optional[List[Dict] | str] = None,
+        mm_data: Optional[Dict] = None,
     ) -> Experience:
         """Convert messages and tools into an Experience object.
 
         Args:
-            messages (List[Dict]|str): The list of message dictionaries or a JSON string.
+            messages (List[Dict]): The list of message dictionaries.
             tools (Optional[List[Dict]|str], optional): The list of tool dictionaries or a JSON string. Defaults to None.
+            mm_data (Optional[Dict], optional): Multi-modal data such as images or videos. Defaults to None.
 
         Returns:
             Experience: The resulting Experience object.
         """
-        if isinstance(messages, str):
-            try:
-                messages = json.loads(messages)
-            except json.JSONDecodeError:
-                self.logger.error(
-                    "[SFT Data Error] Failed to decode 'messages' JSON. please check your data format."
-                )
-                raise ValueError("Invalid JSON format for messages")
-        # Warning if tools is accidentally provided as list of dicts (with Huggingface datasets this may cause schema issues)
         if tools is not None and isinstance(tools, list):
             self.logger.warning(
                 "[SFT Data Warning] 'tools' is provided as a list of dictionaries. "
@@ -160,13 +165,6 @@ class SFTFormatter(ExperienceFormatter):
                     "[SFT Data Error] Failed to decode 'tools' JSON. Please check your data format."
                 )
                 raise ValueError("Invalid JSON format for tools")
-        tokens = self.tokenizer.apply_chat_template(
-            messages,
-            tools=tools,
-            add_generation_prompt=False,
-            return_tensors="pt",
-            chat_template=self.chat_template,
-        )[0]
         if self.enable_concatenated_multi_turn:
             token_ids, action_mask, prompt_length = self.action_mask_method(
                 tokenizer=self.tokenizer,
@@ -180,23 +178,102 @@ class SFTFormatter(ExperienceFormatter):
                 prompt_length=prompt_length,
                 messages=messages,
             )
-        else:
-            prompt_tokens_ids = self.tokenizer.apply_chat_template(
-                messages[:-1],
-                tools=tools,
-                add_generation_prompt=True,
-                return_tensors="pt",
-                chat_template=self.chat_template,
-            )[0]
-            return Experience(
-                tokens=tokens,
-                prompt_length=len(prompt_tokens_ids),
-                messages=messages,
-            )
+        if mm_data:
+            return self.convert_mm_data_to_experiences(messages=messages, mm_data=mm_data)
+        token_ids = self.tokenizer.apply_chat_template(
+            messages,
+            tools=tools,
+            add_generation_prompt=False,
+            return_tensors="pt",
+            chat_template=self.chat_template,
+        )[0]
+        prompt_tokens_ids = self.tokenizer.apply_chat_template(
+            messages[:-1],
+            tools=tools,
+            add_generation_prompt=True,
+            return_tensors="pt",
+            chat_template=self.chat_template,
+        )[0]
+        return Experience(
+            tokens=token_ids,
+            prompt_length=len(prompt_tokens_ids),
+            messages=messages,
+        )
+
+    def load_mm_data(self, sample: Dict) -> Dict:
+        """Load multi-modal data such as images or videos.
+
+        NOTE: You can override this method for custom data loading.
+
+        Args:
+            sample (Dict): The raw sample dictionary containing multi-modal data.
+
+        Returns:
+            Dict: A dictionary containing multi-modal data. Specifically, it may contain:
+                - images: A list of `PIL.Image.Image` if `self.image_key` is set
+                - videos: A list of `numpy.ndarray` if `self.video_key` is set
+        """
+        from verl.utils.dataset.vision_utils import process_image, process_video
+
+        mm_data = {}
+        if self.image_key:
+            mm_data["images"] = [process_image(img) for img in sample[self.image_key]]
+        if self.video_key:
+            mm_data["videos"] = [process_video(vid).numpy() for vid in sample[self.video_key]]
+        return mm_data
+
+    def convert_mm_data_to_experiences(
+        self,
+        messages: List[Dict],
+        mm_data: Dict,
+    ) -> Experience:
+        from trinity.common.models.mm_utils import (
+            build_multi_modal_inputs,
+            convert_messages_to_mm_format,
+        )
+
+        messages = convert_messages_to_mm_format(messages)
+        sequence: str = self.processor.apply_chat_template(
+            messages,
+            add_generation_prompt=False,
+            chat_template=self.chat_template,
+        )
+        prompt: str = self.processor.apply_chat_template(
+            messages[:-1],
+            add_generation_prompt=True,
+            chat_template=self.chat_template,
+        )
+        sequence_data = build_multi_modal_inputs(
+            prompt=sequence,
+            images=mm_data.get("images", None),
+            videos=mm_data.get("videos", None),
+            processor=self.processor,
+        )
+        prompt_data = build_multi_modal_inputs(
+            prompt=prompt,
+            images=mm_data.get("images", None),
+            videos=mm_data.get("videos", None),
+            processor=self.processor,
+        )
+        return Experience(
+            tokens=sequence_data["prompt_token_ids"],
+            prompt_length=len(prompt_data["prompt_token_ids"]),
+            messages=messages,
+            multi_modal_inputs=sequence_data["multi_modal_inputs"],
+        )
 
     def format(self, sample: Dict) -> Experience:
         if self.prompt_type == PromptType.MESSAGES:
             messages = sample[self.messages_key]
+            # load messages from json string if needed
+            if isinstance(messages, str):
+                try:
+                    messages = json.loads(messages)
+                except json.JSONDecodeError:
+                    self.logger.error(
+                        "[SFT Data Error] Failed to decode 'messages' JSON. please check your data format."
+                    )
+                    raise ValueError("Invalid JSON format for messages")
         elif self.prompt_type == PromptType.PLAINTEXT:
             messages = []
             if self.system_prompt_key is not None:
@@ -210,7 +287,8 @@ class SFTFormatter(ExperienceFormatter):
         else:
             raise ValueError(f"Unsupported prompt_type: {self.prompt_type}")
         tools = sample.get(self.tools_key, None)
-        return self._messages_to_experience(messages, tools)
+        mm_data = self.load_mm_data(sample) if self.image_key or self.video_key else None
+        return self._messages_to_experience(messages, tools, mm_data)
 
 
 @FORMATTER.register_module("dpo")
@@ -244,8 +322,8 @@ class DPOFormatter(ExperienceFormatter):
         }
     """
 
-    def __init__(self, tokenizer, format_config: FormatConfig):
-        self.tokenizer = tokenizer
+    def __init__(self, tokenizer_path: str, format_config: FormatConfig):
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_path)
         self.prompt_type = format_config.prompt_type
         self.chat_template = format_config.chat_template
         if self.prompt_type == PromptType.PLAINTEXT:

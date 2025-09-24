@@ -474,7 +474,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             position_ids = []
             multi_modal_inputs = batch.non_tensor_batch["multi_modal_inputs"]
             for idx, mm_inputs in enumerate(multi_modal_inputs):
-                # self.logger.info(f"{key = }, {value.shape =}")
                 input_ids = batch.batch["input_ids"][idx]
                 attention_mask = batch.batch["attention_mask"][idx]
 

@@ -194,14 +194,13 @@ class SQLExperienceStorage(SQLStorage):
     def load_from_dataset(
         cls, dataset: Dataset, storage_config: StorageConfig, config: BufferConfig
     ) -> "SQLExperienceStorage":
-        import transformers
-
-        tokenizer = transformers.AutoTokenizer.from_pretrained(config.tokenizer_path)
         storage = cls(
             storage_config=storage_config,
             config=config,
         )
-        formatter = FORMATTER.get(storage_config.schema_type)(tokenizer, storage_config.format)
+        formatter = FORMATTER.get(storage_config.schema_type)(
+            tokenizer_path=config.tokenizer_path, format_config=storage_config.format
+        )
         batch_size = storage.batch_size
         batch = []
         for item in dataset:

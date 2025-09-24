@@ -4,10 +4,12 @@ import asyncio
 import os
 from typing import Any, Dict, List, Optional, Sequence
 
+import numpy as np
 import ray
 import torch
 import vllm
 from packaging.version import parse as parse_version
+from PIL import Image
 from transformers import AutoProcessor
 from vllm.lora.request import LoRARequest
 from vllm.sampling_params import RequestOutputKind
@@ -16,8 +18,8 @@ from trinity.common.config import InferenceModelConfig
 from trinity.common.experience import Experience
 from trinity.common.models.api.vllm_patch import get_vllm_version
 from trinity.common.models.mm_utils import (
-    attach_images_to_messages,
     build_multi_modal_inputs,
+    convert_messages_to_mm_format,
 )
 from trinity.common.models.model import InferenceModel
 from trinity.common.models.utils import get_action_mask_method
@@ -198,7 +200,7 @@ class vLLMRolloutModel(InferenceModel):
         return experiences
 
     async def chat_mm(
-        self, messages: List[Dict], raw_mm_data: Dict, **kwargs
+        self, messages: List[Dict], images: List[Image.Image], videos: List[np.ndarray], **kwargs
     ) -> Sequence[Experience]:
         """Chat with the model with a list of messages in async.
 
@@ -210,13 +212,11 @@ class vLLMRolloutModel(InferenceModel):
         Returns:
             A list of experiences.
         """
-        # if self.tokenizer is None:
-        #     await self._initialize_tokenizer()
         if self.processor is None:
             self._initialize_processor()
         if self.chat_template is None:
             self.chat_template = self.tokenizer.get_chat_template()
-        messages = attach_images_to_messages(messages, raw_mm_data)
+        messages = convert_messages_to_mm_format(messages)
         if messages[-1]["role"] == "assistant":
             prompt = self.processor.apply_chat_template(
                 messages,
@@ -233,38 +233,31 @@ class vLLMRolloutModel(InferenceModel):
                 enable_thinking=self.enable_thinking,
             )
 
-        mm_inputs = build_multi_modal_inputs(
-            prompt=prompt,
-            raw_mm_data=raw_mm_data,
-            processor=self.processor,
-            **kwargs,
-        )
-        return await self.generate_mm(mm_inputs=mm_inputs, **kwargs)
+        return await self.generate_mm(prompt=prompt, images=images, videos=videos, **kwargs)
 
     async def generate_mm(
-        self, prompt: str = None, raw_mm_data: Dict = None, mm_inputs: Dict = None, **kwargs
+        self,
+        prompt: str = None,
+        images: List[Image.Image] = None,
+        videos: List[np.ndarray] = None,
+        **kwargs,
     ) -> Sequence[Experience]:
         """Generate a response from the provided prompt in async.
 
         Args:
             prompt (str): The input prompt.
-            raw_mm_data (dict): The raw multi-modal data.
-            mm_inputs (dict): The multi-modal inputs, already processed.
-                - keys: "prompt", "multi_modal_data", "multi_modal_inputs".
-            kwargs (dict): A dictionary of sampling parameters.
-
-            Either (`prompt`, raw_mm_data) or (mm_inputs) should be provided.
+            images (List): The list of image inputs.
+            videos (List): The list of video inputs.
 
         Returns:
             A list of experiences.
         """
-        if mm_inputs is None:
-            mm_inputs = build_multi_modal_inputs(
-                prompt=prompt,
-                raw_mm_data=raw_mm_data,
-                processor=self.processor,
-                **kwargs,
-            )
+        mm_inputs = build_multi_modal_inputs(
+            prompt=prompt,
+            images=images,
+            videos=videos,
+            processor=self.processor,
+        )
 
         vllm_inputs = {
             "prompt": mm_inputs["prompt"],

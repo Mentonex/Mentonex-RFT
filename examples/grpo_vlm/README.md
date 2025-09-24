@@ -15,4 +15,6 @@ qwen_vl_utils
 
 For other detailed information, please refer to the [documentation](../../docs/sphinx_doc/source/tutorial/example_reasoning_basic.md).
 
-The config file is located in [`vlm.yaml`](vlm.yaml).
+The config file is located in [`vlm.yaml`](vlm.yaml), and the curve is shown below.
+
+![vlm](../../docs/sphinx_doc/assets/geometry3k_qwen25_vl_3b_reward.png)

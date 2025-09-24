@@ -80,26 +80,32 @@ def explorer_monkey_patch(config: Config, max_steps: int, intervals: List[int]):
 
 def run_trainer(config: Config, max_steps: int, intervals: List[int]) -> None:
     ray.init(ignore_reinit_error=True, namespace=config.ray_namespace)
-    trainer_monkey_patch(config, max_steps, intervals)
-    train(config)
-    ray.shutdown(_exiting_interpreter=True)
+    try:
+        trainer_monkey_patch(config, max_steps, intervals)
+        train(config)
+    finally:
+        ray.shutdown(_exiting_interpreter=True)
 
 
 def run_explorer(config: Config, max_steps: int, intervals: List[int]) -> None:
     ray.init(ignore_reinit_error=True, namespace=config.ray_namespace)
-    explorer_monkey_patch(config, max_steps, intervals)
-    explore(config)
-    ray.shutdown(_exiting_interpreter=True)
+    try:
+        explorer_monkey_patch(config, max_steps, intervals)
+        explore(config)
+    finally:
+        ray.shutdown(_exiting_interpreter=True)
 
 
 def run_both(
     config: Config, max_steps: int, trainer_intervals: List[int], explorer_intervals: List[int]
 ) -> None:
     ray.init(ignore_reinit_error=True, namespace=config.ray_namespace)
-    trainer_monkey_patch(config, max_steps, trainer_intervals)
-    explorer_monkey_patch(config, max_steps, explorer_intervals)
-    both(config)
-    ray.shutdown(_exiting_interpreter=True)
+    try:
+        trainer_monkey_patch(config, max_steps, trainer_intervals)
+        explorer_monkey_patch(config, max_steps, explorer_intervals)
+        both(config)
+    finally:
+        ray.shutdown(_exiting_interpreter=True)
 
 
 class BaseTestSynchronizer(unittest.TestCase):

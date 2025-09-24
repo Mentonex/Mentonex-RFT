@@ -3,7 +3,6 @@
 from typing import List, Optional
 
 import datasets
-import transformers
 from datasets import Dataset, load_dataset
 
 from trinity.buffer.buffer_reader import BufferReader
@@ -100,12 +99,11 @@ class BaseFileReader(BufferReader):
 
 
 class ExperienceFileReader(BaseFileReader):
-    """Reader for SFT file data."""
+    """Reader for SFT / DPO file data."""
 
     def __init__(self, meta: StorageConfig, config: BufferConfig):
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(config.tokenizer_path)
         self.formatter = FORMATTER.get(meta.schema_type)(
-            tokenizer=self.tokenizer, format_config=meta.format
+            tokenizer_path=config.tokenizer_path, format_config=meta.format
         )
         self.read_batch_size = config.train_batch_size
         self.dataset = _HFBatchReader(

@@ -61,7 +61,7 @@ def get_checkpoint_path() -> str:
     return path
 
 
-def get_vision_languge_model_path() -> str:
+def get_vision_language_model_path() -> str:
     path = os.environ.get(VLM_MODEL_PATH_ENV_VAR)
     if not path:
         raise EnvironmentError(
@@ -163,6 +163,7 @@ def get_unittest_dataset_config(
             path=os.path.join(os.path.dirname(__file__), "template", "data", "geometry"),
             split="train",
             format=FormatConfig(
+                prompt_type=PromptType.PLAINTEXT,
                 prompt_key="problem",
                 response_key="answer",
                 image_key="images",

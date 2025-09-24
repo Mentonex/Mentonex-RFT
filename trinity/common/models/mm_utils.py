@@ -1,78 +1,73 @@
-from typing import Any, Dict
+""""Multi-modal utilities for processing and handling multi-modal data such as images and videos.
+Only support Qwen2.5 VL series.
+
+Modified from: verl/utils/dataset/rl_dataset.py
+"""
+import re
+from typing import Any, Dict, List
+
+import numpy as np
+from PIL import Image
 
 
 def build_multi_modal_inputs(
     prompt: str,
-    raw_mm_data: Dict[str, Any],
+    images: List[Image.Image],
+    videos: List[np.ndarray],
     processor: Any,
-    **kwargs,
 ) -> Dict[str, Any]:
     """
     Preprocess multi-modal data and build multi-modal inputs
-    Adapted from: verl/utils/dataset/rl_dataset.py
     """
-    from verl.utils.dataset.vision_utils import process_image, process_video
-
     if prompt is None:
         raise ValueError("Prompt is required for build multi-modal inputs")
 
-    raw_images, raw_videos = None, None
-    if "image" in raw_mm_data:
-        raw_images = raw_mm_data["image"]
-    if "video" in raw_mm_data:
-        raw_videos = raw_mm_data["video"]
-
     multi_modal_data = {}
-    images, videos = None, None
-    if raw_images is not None:
-        images = [process_image(image) for image in raw_images]
+    if images:
         multi_modal_data["image"] = images
-    if raw_videos is not None:
-        videos = [process_video(video) for video in raw_videos]
-        multi_modal_data["video"] = [video.numpy() for video in videos]
+    if videos:
+        multi_modal_data["video"] = videos
 
-    model_inputs = processor(text=[prompt], images=images, videos=videos, return_tensors="pt")
+    model_inputs = processor(
+        text=[prompt],
+        images=multi_modal_data.get("image", None),
+        videos=multi_modal_data.get("video", None),
+        return_tensors="pt",
+    )
 
-    model_inputs.pop("input_ids", None)  # TODO: check
-    model_inputs.pop("attention_mask", None)
+    input_ids = model_inputs.pop("input_ids")[0]
+    model_inputs.pop("attention_mask")
 
-    # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
-    multi_modal_inputs = dict(model_inputs)
+    if "second_per_grid_ts" in model_inputs:
+        model_inputs.pop("second_per_grid_ts")
 
     return {
         "prompt": prompt,
-        "multi_modal_inputs": multi_modal_inputs,
+        "prompt_token_ids": input_ids,
         "multi_modal_data": multi_modal_data,
+        "multi_modal_inputs": dict(model_inputs),
     }
 
 
-def attach_images_to_messages(messages, raw_mm_data):
-    new_msgs = [dict(m) for m in messages]
-    imgs = (raw_mm_data or {}).get("image") or []
-    if not imgs:
-        return new_msgs
+def convert_messages_to_mm_format(messages: List[Dict]) -> List[Dict]:
+    for message in messages:
+        content = message["content"]
+        content_list = []
+        segments = re.split("(<image>|<video>)", content)
+        segments = [item for item in segments if item != ""]
+        for segment in segments:
+            if segment == "<image>":
+                content_list.append(
+                    {"type": "image"}
+                )  # chat template will fill the actual image data later
+            elif segment == "<video>":
+                content_list.append(
+                    {"type": "video"}
+                )  # chat template will fill the actual video data later
+            elif len(segment) == 0:
+                continue
+            else:
+                content_list.append({"type": "text", "text": segment})
 
-    for i in range(len(new_msgs) - 1, -1, -1):
-        if new_msgs[i].get("role") == "user":
-            content = new_msgs[i].get("content", "")
-            items = []
-            if isinstance(content, str):
-                text = content.replace("<image>", "").replace("<|image_pad|>", "").strip()
-                if text:
-                    items.append({"type": "text", "text": text})
-            elif isinstance(content, list):
-                for c in content:
-                    if isinstance(c, str):
-                        t = c.replace("<image>", "").replace("<|image_pad|>", "").strip()
-                        if t:
-                            items.append({"type": "text", "text": t})
-                    elif isinstance(c, dict):
-                        items.append(c)
-
-            for img in imgs:
-                items.append({"type": "image", "image": img})
-
-            new_msgs[i]["content"] = items
-            break
-
-    return new_msgs
+        message["content"] = content_list
+    return messages

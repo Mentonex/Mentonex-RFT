@@ -27,6 +27,8 @@ class SimpleMMWorkflow(SimpleWorkflow):
         )
 
     def reset(self, task: Task):
+        from verl.utils.dataset.vision_utils import process_image, process_video
+
         self.format_args = task.format_args
         self.system_prompt = """You are a helpful assistant that solves MATH problems. You should first thinks about the reasoning process in mind and then provides the user with the answer. You should present your reasoning process using the format: <think>\n ...your reasoning process here... </think>\n first. You should always include your final answer in \\boxed{} as closed-form results."""  # TODO: check
         self.reply_prefix = task.format_args.reply_prefix
@@ -44,21 +46,23 @@ class SimpleMMWorkflow(SimpleWorkflow):
 
         self.image_key = task.format_args.image_key
         self.video_key = task.format_args.video_key
-        self.raw_mm_data = {}
-        if self.image_key and task.raw_task.get(self.image_key) is not None:
-            self.raw_mm_data["image"] = task.raw_task[self.image_key]
-        if self.video_key and task.raw_task.get(self.video_key) is not None:
-            self.raw_mm_data["video"] = task.raw_task[self.video_key]
+        self.images = []
+        self.videos = []
+        if self.image_key and self.raw_task.get(self.image_key) is not None:
+            self.images = [process_image(img) for img in self.raw_task[self.image_key]]  # type: ignore [index]
+        if self.video_key and self.raw_task.get(self.video_key) is not None:
+            self.videos = [process_video(vid).numpy() for vid in self.raw_task[self.video_key]]  # type: ignore [index]
+        self.messages = self.format_messages()
 
     def run(self) -> List[Experience]:
-        messages = self.format_messages()
-
         # TODO: test generate_mm
         self.logger.debug("start chat")
-        if self.raw_mm_data:
-            responses = self.model.chat_mm(messages, self.raw_mm_data, **self.rollout_args)
+        if self.images or self.videos:
+            responses = self.model.chat_mm(
+                messages=self.messages, images=self.images, videos=self.videos, **self.rollout_args
+            )
         else:
-            responses = self.model.chat(messages, **self.rollout_args)
+            responses = self.model.chat(messages=self.messages, **self.rollout_args)
         for i, response in enumerate(responses):
             reward_dict = self.reward_fn(  # type: ignore [misc]
                 response=response.response_text,  # type: ignore [arg-type]
@@ -83,16 +87,14 @@ class AsyncSimpleMMWorkflow(SimpleMMWorkflow):
         return True
 
     async def run_async(self) -> List[Experience]:
-        messages = self.format_messages()
-
         # TODO: test generate_mm
         self.logger.debug("start chat")
-        if self.raw_mm_data:
+        if self.images or self.videos:
             responses = await self.model.chat_mm_async(
-                messages, self.raw_mm_data, **self.rollout_args
+                messages=self.messages, images=self.images, videos=self.videos, **self.rollout_args
             )
         else:
-            responses = await self.model.chat_async(messages, **self.rollout_args)
+            responses = await self.model.chat_async(messages=self.messages, **self.rollout_args)
         for i, response in enumerate(responses):
             reward_dict = self.reward_fn(  # type: ignore [misc]
                 response=response.response_text,  # type: ignore [arg-type]

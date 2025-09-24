@@ -6,9 +6,11 @@ from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import httpx
+import numpy as np
 import openai
 import ray
 import torch
+from PIL import Image
 from torch import Tensor
 from vllm.lora.request import LoRARequest
 
@@ -149,25 +151,33 @@ class ModelWrapper:
 
     @_history_recorder
     def generate_mm(
-        self, prompts: List[str], raw_mm_data_list: List[dict], **kwargs
+        self,
+        prompts: List[str],
+        images: List[List[Image.Image]],
+        videos: List[List[np.ndarray]],
+        **kwargs,
     ) -> List[Experience]:
-        """Generate a list of experiences from a list of prompts and raw_mm_data."""
+        """Generate a list of experiences from a list of prompts and multi-modal data."""
         results = ray.get(
             [
-                self.model.generate_mm.remote(prompt, mm_data, **kwargs)
-                for prompt, mm_data in zip(prompts, raw_mm_data_list)
+                self.model.generate_mm.remote(prompt, images=img, videos=vid, **kwargs)
+                for prompt, img, vid in zip(prompts, images, videos)
             ]
         )
         return [exp for exps in results for exp in exps]
 
     @_history_recorder
     async def generate_mm_async(
-        self, prompts: List[str], raw_mm_data_list: List[dict], **kwargs
+        self,
+        prompts: List[str],
+        images: List[List[Image.Image]],
+        videos: List[List[np.ndarray]],
+        **kwargs,
     ) -> List[Experience]:
         results = await asyncio.gather(
             *[
-                self.model.generate_mm.remote(p, m, **kwargs)
-                for p, m in zip(prompts, raw_mm_data_list)
+                self.model.generate_mm.remote(p, images=img, videos=vid, **kwargs)
+                for p, img, vid in zip(prompts, images, videos)
             ]
         )
         return [exp for exps in results for exp in exps]
@@ -185,14 +195,16 @@ class ModelWrapper:
         return await self.model.chat.remote(messages, lora_request, **kwargs)
 
     @_history_recorder
-    def chat_mm(self, messages: List[dict], raw_mm_data: dict, **kwargs) -> List[Experience]:
-        return ray.get(self.model.chat_mm.remote(messages, raw_mm_data, **kwargs))
+    def chat_mm(
+        self, messages: List[dict], images: List[Image.Image], videos: List[np.ndarray], **kwargs
+    ) -> List[Experience]:
+        return ray.get(self.model.chat_mm.remote(messages, images=images, videos=videos, **kwargs))
 
     @_history_recorder
     async def chat_mm_async(
-        self, messages: List[dict], raw_mm_data: dict, **kwargs
+        self, messages: List[dict], images: List[Image.Image], videos: List[np.ndarray], **kwargs
     ) -> List[Experience]:
-        return await self.model.chat_mm.remote(messages, raw_mm_data, **kwargs)
+        return await self.model.chat_mm.remote(messages, images=images, videos=videos, **kwargs)
 
     def logprobs(self, tokens: List[int]) -> Tensor:
         """Calculate the logprobs of the given tokens."""
