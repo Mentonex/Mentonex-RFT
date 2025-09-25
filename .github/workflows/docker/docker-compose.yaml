@@ -8,6 +8,7 @@ services:
       - RAY_ADDRESS=auto
       - TRINITY_CHECKPOINT_ROOT_DIR=/mnt/checkpoints
       - TRINITY_TASKSET_PATH=/mnt/data
+      - TRINITY_EVAL_TASKSET_PATH=/mnt/data
       - TRINITY_SFT_DATASET_PATH=/mnt/data
       - TRINITY_MODEL_PATH=/mnt/models/Qwen3-0.6B
       - TRINITY_API_MODEL_PATH=/mnt/models/Qwen3-1.7B
