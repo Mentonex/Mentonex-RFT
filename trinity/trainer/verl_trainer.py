@@ -5,7 +5,8 @@ Modified from verl/trainer/ppo/ray_trainer.py
 """
 import os
 import sys
-from typing import Dict
+from collections import defaultdict
+from typing import Dict, Optional
 
 import ray
 import torch
@@ -36,6 +37,112 @@ from trinity.common.experience import Experiences
 from trinity.trainer.trainer import TrainEngineWrapper
 from trinity.trainer.verl.utils import compute_data_metrics, to_data_proto
 from trinity.utils.log import get_logger
+
+
+class CheckpointMonitor:
+    def __init__(self, default_local_dir: str, default_hdfs_dir: str = None):
+        self.logger = get_logger("Checkpoint Monitor", in_ray_actor=True)
+        self.default_local_dir = default_local_dir
+        self.default_hdfs_dir = default_hdfs_dir
+        self.local_latest_checkpointed_iteration = os.path.join(
+            default_local_dir, "latest_checkpointed_iteration.txt"
+        )
+        self.local_latest_state_dict_iteration = os.path.join(
+            default_local_dir, "latest_state_dict_iteration.txt"
+        )
+        self.checkpoint_counter = defaultdict(int)
+        self.state_dict_counter = defaultdict(int)
+        self.checkpoint_steps = set()
+        self.state_dict_steps = set()
+        self.latest_checkpoint_step = 0
+        self.latest_state_dict_step = 0
+
+    def update_latest_checkpoint_step(self, step: int):
+        assert step >= self.latest_checkpoint_step
+        if step == self.latest_checkpoint_step:
+            return
+        self.latest_checkpoint_step = step
+        with open(self.local_latest_checkpointed_iteration, "w") as f:
+            f.write(str(step))
+        if step in self.state_dict_counter:
+            assert self.state_dict_counter[step] == 0
+            self.update_latest_state_dict_step(step)
+
+        # Upload checkpoint to hdfs
+        if self.default_hdfs_dir is not None:
+            local_path = os.path.join(self.default_local_dir, f"global_step_{step}")
+            hdfs_path = os.path.join(self.default_hdfs_dir, f"global_step_{step}")
+            self.logger.info(f"Uploading checkpoint to {hdfs_path}")
+            from verl.utils import hdfs_io
+
+            hdfs_io.makedirs(hdfs_path, exist_ok=True)
+            hdfs_io.copy(src=local_path, dst=hdfs_path, dirs_exist_ok=True)
+        self.logger.info(f"Checkpoint at step {step} saved.")
+
+    def update_latest_state_dict_step(self, step: int):
+        assert step >= self.latest_state_dict_step
+        if step == self.latest_state_dict_step:
+            return
+        self.latest_state_dict_step = step
+        with open(self.local_latest_state_dict_iteration, "w") as f:
+            f.write(str(step))
+
+    def register_thread_count(
+        self,
+        step: int,
+        *,
+        state_dict_thread_count: int = 0,
+        checkpoint_thread_count: int = 0,
+    ):
+        if state_dict_thread_count != 0:
+            self.state_dict_counter[step] += state_dict_thread_count
+        if checkpoint_thread_count != 0:
+            self.checkpoint_counter[step] += checkpoint_thread_count
+
+    def monitor_step(self, step: int, is_state_dict: bool = False):
+        if is_state_dict:
+            self.state_dict_steps.add(step)
+            if self.state_dict_counter[step] == 0:
+                self.update_latest_state_dict_step(step)
+        else:
+            self.checkpoint_steps.add(step)
+            if self.checkpoint_counter[step] == 0 and self.state_dict_counter[step] == 0:
+                self.update_latest_checkpoint_step(step)
+
+    def notify_finished(self, step: int, is_state_dict: bool = False):
+        if is_state_dict:
+            self.state_dict_counter[step] -= 1
+            if (
+                step in self.state_dict_steps or step in self.checkpoint_steps
+            ) and self.state_dict_counter[step] == 0:
+                self.update_latest_state_dict_step(step)
+                if step in self.checkpoint_steps and self.checkpoint_counter[step] == 0:
+                    self.update_latest_checkpoint_step(step)
+        else:
+            self.checkpoint_counter[step] -= 1
+            if (
+                step in self.checkpoint_steps
+                and self.checkpoint_counter[step] == 0
+                and self.state_dict_counter[step] == 0
+            ):
+                self.update_latest_checkpoint_step(step)
+
+    @classmethod
+    def get_actor(
+        cls,
+        namespace: str,
+        default_local_dir: Optional[str] = None,
+        default_hdfs_dir: Optional[str] = None,
+    ):
+        return (
+            ray.remote(cls)
+            .options(
+                name="checkpoint_monitor",
+                namespace=namespace,
+                get_if_exists=True,
+            )
+            .remote(default_local_dir=default_local_dir, default_hdfs_dir=default_hdfs_dir)
+        )
 
 
 class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
@@ -81,6 +188,12 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
 
         else:
             raise NotImplementedError
+
+        self.checkpoint_monitor = CheckpointMonitor.get_actor(
+            namespace=global_config.synchronizer.ray_namespace,
+            default_local_dir=config.trainer.default_local_dir,
+            default_hdfs_dir=config.trainer.default_hdfs_dir,
+        )
 
         role_worker_mapping = {
             Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
@@ -250,19 +363,14 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         self.config.critic.optim.total_training_steps = self.total_training_steps
 
     def save_state_dict(self):  # checkpoint sync
-        local_global_step_folder = os.path.join(
-            self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
+        actor_local_path = os.path.join(
+            self.config.trainer.default_local_dir, f"global_step_{self.global_steps}", "actor"
         )
-
-        actor_local_path = os.path.join(local_global_step_folder, "actor")
-        if not os.path.exists(actor_local_path):
-            self.actor_rollout_wg.save_checkpoint(
-                actor_local_path,
-                None,
-                self.global_steps,
-                max_ckpt_to_keep=None,
-                model_state_dict_only=True,
-            )
+        self.actor_rollout_wg.save_state_dict(
+            actor_local_path,
+            global_step=self.global_steps,
+        )
+        ray.get(self.checkpoint_monitor.monitor_step.remote(self.global_steps, is_state_dict=True))
 
     def upload_state_dict(self):  # state dict sync
         self.actor_rollout_wg.upload_state_dict(self.global_steps)
@@ -354,14 +462,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         self.logger.info(f"local_global_step_folder: {local_global_step_folder}")
         actor_local_path = os.path.join(local_global_step_folder, "actor")
 
-        actor_remote_path = (
-            None
-            if self.config.trainer.default_hdfs_dir is None
-            else os.path.join(
-                self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor"
-            )
-        )
-
         remove_previous_ckpt_in_save = self.config.trainer.get(
             "remove_previous_ckpt_in_save", False
         )
@@ -383,7 +483,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
 
         self.actor_rollout_wg.save_checkpoint(
             actor_local_path,
-            actor_remote_path,
             self.global_steps,
             max_ckpt_to_keep=max_actor_ckpt_to_keep,
             save_as_hf=save_as_hf,
@@ -391,28 +490,13 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, "critic")
-            critic_remote_path = (
-                None
-                if self.config.trainer.default_hdfs_dir is None
-                else os.path.join(
-                    self.config.trainer.default_hdfs_dir,
-                    f"global_step_{self.global_steps}",
-                    "critic",
-                )
-            )
             self.critic_wg.save_checkpoint(
                 critic_local_path,
-                critic_remote_path,
                 self.global_steps,
                 max_ckpt_to_keep=max_critic_ckpt_to_keep,
             )
 
-        # latest checkpointed iteration tracker (for atomic usage)
-        local_latest_checkpointed_iteration = os.path.join(
-            self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
-        )
-        with open(local_latest_checkpointed_iteration, "w") as f:
-            f.write(str(self.global_steps))
+        ray.get(self.checkpoint_monitor.monitor_step.remote(self.global_steps))
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
