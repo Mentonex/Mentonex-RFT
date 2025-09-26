@@ -5,7 +5,6 @@
 </div>
 
 
-
 <h2 align="center">Trinity-RFT: A General-Purpose and Unified Framework for Reinforcement Fine-Tuning of Large Language Models</h2>
 
 
@@ -20,22 +19,23 @@
 
 ## 💡 What is Trinity-RFT?
 
-Trinity-RFT is a flexible, general-purpose framework for reinforcement fine-tuning (RFT) of large language models (LLMs). It provides three independent modules for users with different needs:
+Trinity-RFT is a flexible, general-purpose framework for reinforcement fine-tuning (RFT) of large language models (LLMs). It decouples the RFT process into three key components: **Explorer**, **Trainer**, and **Buffer**, and provides functionalities for users with different backgrounds and objectives:
 
-* 🤖 **Explorer**：For agent application developers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_workflow.html)
-  - Train an agent application to enhance its ability to complete tasks in a specified environment
+
+* 🤖 For agent application developers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_workflow.html)
+  - Train agent applications to improve their ability to complete tasks in specific environments.
   - Examples: [Multi-Turn Interaction](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_multi_turn.html), [ReAct Agent](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_react.html)
 
-* 🧠 **Trainer**: For RL algorithm researchers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_algorithm.html)
-  - Design and validate new RL algorithms in compact, plug-and-play classes
-  - Examples: [Mixture of RL Algorithms](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_mix_algo.html)
+* 🧠 For RL algorithm researchers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_algorithm.html)
+  - Design and validate new reinforcement learning algorithms using compact, plug-and-play modules.
+  - Example: [Mixture of SFT and GRPO](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_mix_algo.html)
 
-* 🗄️ **Buffer**: For data engineers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_operator.html)
-  - Design task-specific datasets and build data pipelines for cleaning, augmentation, and human-in-the-loop scenarios
-  - Examples: [Data Functionalities](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_data_functionalities.html)
+* 📊 For data engineers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_operator.html)
+  - Create task-specific datasets and build data pipelines for cleaning, augmentation, and human-in-the-loop scenarios.
+  - Example: [Data Processing](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_data_functionalities.html)
 
 
-Trinity-RFT unifies the above three modules and provides the following key features:
+## 🌟 Key Features
 
 * **Flexible RFT Modes:**
   - Supports synchronous/asynchronous, on-policy/off-policy, and online/offline training. Rollout and training can run separately and scale independently across devices.
