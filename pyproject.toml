@@ -120,6 +120,9 @@ exclude = '''
 [tool.isort]
 known_third_party = ["wandb"]
 
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch", "numpy"]
+
 [project.urls]
 "Homepage" = "https://github.com/modelscope/Trinity-RFT"
 "Documentation" = "https://modelscope.github.io/Trinity-RFT/"

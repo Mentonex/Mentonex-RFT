@@ -18,6 +18,45 @@
 
 </div>
 
+## 💡 What is Trinity-RFT?
+
+Trinity-RFT is a flexible, general-purpose framework for reinforcement fine-tuning (RFT) of large language models (LLMs). It provides three independent modules for users with different needs:
+
+* 🤖 **Explorer**：For agent application developers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_workflow.html)
+  - Train an agent application to enhance its ability to complete tasks in a specified environment
+  - Examples: [Multi-Turn Interaction](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_multi_turn.html), [ReAct Agent](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_react.html)
+
+* 🧠 **Trainer**: For RL algorithm researchers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_algorithm.html)
+  - Design and validate new RL algorithms in compact, plug-and-play classes
+  - Examples: [Mixture of RL Algorithms](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_mix_algo.html)
+
+* 🗄️ **Buffer**: For data engineers. [[tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/develop_operator.html)
+  - Design task-specific datasets and build data pipelines for cleaning, augmentation, and human-in-the-loop scenarios
+  - Examples: [Data Functionalities](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_data_functionalities.html)
+
+
+Trinity-RFT unifies the above three modules and provides the following key features:
+
+* **Flexible RFT Modes:**
+  - Supports synchronous/asynchronous, on-policy/off-policy, and online/offline training. Rollout and training can run separately and scale independently across devices.
+
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01E7NskS1FFoTI9jlaQ_!!6000000000458-2-tps-1458-682.png" alt="RFT modes supported by Trinity-RFT" width="600" />
+
+* **General Agentic-RL Support:**
+  - Supports both concatenated and general multi-turn agentic workflows. Able to directly train agent applications developed using agent frameworks like AgentScope.
+
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01z1i7kk1jlMEVa8ZHV_!!6000000004588-2-tps-1262-695.png" alt="Agentic workflows" width="600" />
+
+* **Full Lifecycle Data Pipelines:**
+  - Enables pipeline processing of rollout and experience data, supporting active management (prioritization, cleaning, augmentation) throughout the RFT lifecycle.
+
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01BfeHp61sXSlGjH7zQ_!!6000000005776-2-tps-1734-473.png" alt="Data pipeline design" width="600" />
+
+* **User-Friendly Design:**
+  - Modular, decoupled architecture for easy adoption and development. Rich graphical user interfaces enable low-code usage.
+
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01Ti0o4320RywoAuyhN_!!6000000006847-2-tps-3840-2134.png" alt="System architecture" width="600" />
+
 
 ## 🚀 News
 
@@ -31,64 +70,12 @@
 * [2025-04] Trinity-RFT open sourced.
 
 
-## 💡 What is Trinity-RFT?
-
-Trinity-RFT is a flexible, general-purpose framework for reinforcement fine-tuning (RFT) of large language models (LLMs). It supports a wide range of applications and provides a unified platform for RL research in the [era of experience](https://storage.googleapis.com/deepmind-media/Era-of-Experience%20/The%20Era%20of%20Experience%20Paper.pdf).
-
-The RFT process is modularized into three core components:
-
-* **Explorer**: Handles agent-environment interaction
-* **Trainer**: Manages model training
-* **Buffer**: Manages data storage and processing
-
-
-<img src="https://img.alicdn.com/imgextra/i2/O1CN01H3UbpF1yP7E1OCLbi_!!6000000006570-2-tps-1334-638.png" alt="The high-level design of Trinity-RFT" width="800" />
-
-
-
-## ✨ Key Features
-
-* **Flexible RFT Modes:**
-  - Supports synchronous/asynchronous, on-policy/off-policy, and online/offline training. Rollout and training can run separately and scale independently across devices.
-
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01E7NskS1FFoTI9jlaQ_!!6000000000458-2-tps-1458-682.png" alt="RFT modes supported by Trinity-RFT" width="600" />
-
-* **Agent Framework Compatible Workflows:**
-  - Supports both concatenated and general multi-turn agentic workflows. Automatically collects training data from model API clients (e.g., OpenAI) and is compatible with agent frameworks like AgentScope.
-
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01z1i7kk1jlMEVa8ZHV_!!6000000004588-2-tps-1262-695.png" alt="Agentic workflows" width="600" />
-
-* **Powerful Data Pipelines:**
-  - Enables pipeline processing of rollout and experience data, supporting active management (prioritization, cleaning, augmentation) throughout the RFT lifecycle.
-
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN01BfeHp61sXSlGjH7zQ_!!6000000005776-2-tps-1734-473.png" alt="Data pipeline design" width="600" />
-
-* **User-Friendly Design:**
-  - Modular, decoupled architecture for easy adoption and development. Rich graphical user interfaces enable low-code usage.
-
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01Ti0o4320RywoAuyhN_!!6000000006847-2-tps-3840-2134.png" alt="System architecture" width="600" />
-
-
-
-
-## 🛠️ What can I use Trinity-RFT for?
-
-* **Train agent applications with RL and minimal migration cost** [[Tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/trinity_programming_guide.html#workflows-for-rl-environment-developers)
-  - Implement agent-environment interaction logic in a single workflow class ([example1](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_multi_turn.html), [example2](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_step_wise.html)),
-  - Or import workflows from agent frameworks like AgentScope ([example](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_react.html)).
-
-* **Rapid RL algorithm design and validation** [[Tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/trinity_programming_guide.html#algorithms-for-rl-algorithm-developers)
-  - Develop custom RL algorithms (loss design, sampling strategy, etc.) in compact, plug-and-play classes ([example](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_mix_algo.html)).
-
-* **Custom datasets and data pipelines for RFT** [[Tutorial]](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/trinity_programming_guide.html#operators-for-data-developers)
-  - Design task-specific datasets and build data pipelines for cleaning, augmentation, and human-in-the-loop scenarios ([example](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_data_functionalities.html)).
-
 ---
 
 ## Table of contents
 
 
-- [Getting started](#getting-started)
+- [Quick Start](#quick-start)
   - [Step 1: installation](#step-1-installation)
   - [Step 2: prepare dataset and model](#step-2-prepare-dataset-and-model)
   - [Step 3: configurations](#step-3-configurations)
@@ -101,7 +88,7 @@ The RFT process is modularized into three core components:
 
 
 
-## Getting started
+## Quick Start
 
 
 > [!NOTE]
@@ -110,8 +97,6 @@ The RFT process is modularized into three core components:
 
 ### Step 1: installation
 
-#### Prerequisites
-
 Before installing, make sure your system meets the following requirements:
 
 - **Python**: version 3.10 to 3.12 (inclusive)
@@ -119,9 +104,9 @@ Before installing, make sure your system meets the following requirements:
 - **GPUs**: at least 2 GPUs
 
 
-#### Option A: Install from Source (Recommended)
+#### From Source (Recommended)
 
-This method gives you full control and is best if you plan to customize or contribute to the project.
+If you plan to customize or contribute to Trinity-RFT, this is the best option.
 
 ##### 1. Clone the Repository
 
@@ -132,69 +117,59 @@ cd Trinity-RFT
 
 ##### 2. Set Up a Virtual Environment
 
-Choose one of the following options to create an isolated environment:
+Choose one of the following options:
 
 ###### Using Conda
+
 ```bash
 conda create -n trinity python=3.10
 conda activate trinity
+
+pip install -e ".[dev]"
+pip install -e ".[flash_attn]"
+# if you encounter issues when installing flash-attn, try:
+# pip install flash-attn==2.8.1 --no-build-isolation
 ```
 
 ###### Using venv
+
 ```bash
 python3.10 -m venv .venv
 source .venv/bin/activate
-```
 
-##### 3. Install the Package
-
-Install in editable mode so you can make changes without reinstalling:
-
-```bash
 pip install -e ".[dev]"
+pip install -e ".[flash_attn]"
+# if you encounter issues when installing flash-attn, try:
+# pip install flash-attn==2.8.1 --no-build-isolation
 ```
 
-##### 4. Install Flash Attention
+###### Using `uv`
 
-Flash Attention boosts training speed. It takes a few minutes to compile — please be patient!
+[`uv`](https://github.com/astral-sh/uv) is a modern Python package installer.
 
 ```bash
-pip install flash-attn==2.8.1
-```
-
-If you encounter issues during installation, try this alternative:
-
-```bash
-pip install flash-attn==2.8.1 --no-build-isolation
+uv sync --extra dev --extra flash_attn
 ```
 
 
-##### ⚡ Fast Alternative: Use `uv` (Optional)
-
-If you'd like a faster installation, try [`uv`](https://github.com/astral-sh/uv), a modern Python package installer:
-
-```bash
-uv venv
-source .venv/bin/activate
-
-uv pip install -e ".[dev]"
-uv pip install flash-attn==2.8.1 --no-build-isolation
-```
-
-#### Option B: Install via pip (Quick Start)
+#### Via PyPI
 
 If you just want to use the package without modifying the code:
 
 ```bash
 pip install trinity-rft==0.3.0
-pip install flash-attn==2.8.1  # Install Flash Attention separately
-
-# Use uv to install trinity-rft
-# uv pip install trinity-rft==0.3.0
-# uv pip install flash-attn==2.8.1
+pip install flash-attn==2.8.1
 ```
 
-#### Option C: Use Docker
+Or with `uv`:
+
+```bash
+uv pip install trinity-rft==0.3.0
+uv pip install flash-attn==2.8.1
+```
+
+
+#### Using Docker
 
 We provide a Docker setup for hassle-free environment configuration.
 
@@ -202,11 +177,11 @@ We provide a Docker setup for hassle-free environment configuration.
 git clone https://github.com/modelscope/Trinity-RFT
 cd Trinity-RFT
 
-## Build the Docker image
+# Build the Docker image
 ## Tip: You can modify the Dockerfile to add mirrors or set API keys
 docker build -f scripts/docker/Dockerfile -t trinity-rft:latest .
 
-## Run the container
+# Run the container, replacing <path_to_your_data_and_checkpoints> with your actual path
 docker run -it \
   --gpus all \
   --shm-size="64g" \
@@ -216,9 +191,7 @@ docker run -it \
   trinity-rft:latest
 ```
 
-💡 **Note**: Replace `<path_to_your_data_and_checkpoints>` with the actual path on your machine where datasets and model checkpoints are stored.
-
-> If you'd like to integrate with **Megatron-LM**, check out our [example setup guide for Megatron](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_megatron.html).
+> For training with **Megatron-LM**, please refer to [Megatron-LM Backend](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_megatron.html).
 
 ### Step 2: prepare dataset and model
 
