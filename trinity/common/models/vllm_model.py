@@ -491,6 +491,9 @@ class vLLMRolloutModel(InferenceModel):
     def get_model_version(self) -> int:
         return self.model_version
 
+    def get_model_path(self) -> str:
+        return self.config.model_path
+
     def get_lora_request(self, lora_path: Optional[str] = None) -> LoRARequest:
         assert self.config.lora_modules is not None
         lora_request = LoRARequest(**self.config.lora_modules[0])

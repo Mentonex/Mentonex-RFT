@@ -58,6 +58,10 @@ class InferenceModel(ABC):
         """Get the API server URL if available."""
         return None
 
+    def get_model_path(self) -> Optional[str]:
+        """Get the model path"""
+        return None
+
 
 def _history_recorder(func):
     """Decorator to record history of the model calls."""
@@ -231,6 +235,16 @@ class ModelWrapper:
     async def model_version_async(self) -> int:
         """Get the version of the model."""
         return await self.model.get_model_version.remote()
+
+    @property
+    def model_path(self) -> str:
+        """Get the model path."""
+        return ray.get(self.model.get_model_path.remote())
+
+    @property
+    async def model_path_async(self) -> str:
+        """Get the model path."""
+        return await self.model.get_model_path.remote()
 
     def get_lora_request(self) -> Optional[LoRARequest]:
         if self.enable_lora:
