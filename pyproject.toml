@@ -83,6 +83,7 @@ doc = [
     "myst-parser",
     "sphinxcontrib-apidoc",
     "sphinx-multiversion",
+    "sphinxcontrib-mermaid",
 ]
 
 flash_attn = [
