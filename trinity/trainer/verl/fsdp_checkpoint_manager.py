@@ -115,6 +115,10 @@ class FSDPCheckpointManager(OldFSDPCheckpointManager):
             thread.join()
 
         def _save():
+            runtime_context = ray.get_runtime_context()
+            node_id = runtime_context.get_node_id()
+            job_id = runtime_context.get_job_id()
+            ray.get(self.checkpoint_monitor.notify_started.remote(node_id=node_id, job_id=job_id))
             torch.save(obj, path)
             log_with_rank(
                 f"Saved {prefix} to {os.path.abspath(path)}",
@@ -357,6 +361,14 @@ class FSDPCheckpointManager(OldFSDPCheckpointManager):
                     self._save_model_thread.join()
 
                 def _save_model():
+                    runtime_context = ray.get_runtime_context()
+                    node_id = runtime_context.get_node_id()
+                    job_id = runtime_context.get_job_id()
+                    ray.get(
+                        self.checkpoint_monitor.notify_started.remote(
+                            node_id=node_id, job_id=job_id
+                        )
+                    )
                     save_model.save_pretrained(hf_local_path, state_dict=state_dict)
                     log_with_rank(
                         f"Saved hf_model to {os.path.abspath(hf_local_path)}",

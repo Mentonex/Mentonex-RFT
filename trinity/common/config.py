@@ -16,10 +16,10 @@ from trinity.common.constants import (
     LOG_DIR_ENV_VAR,
     LOG_LEVEL_ENV_VAR,
     LOG_NODE_IP_ENV_VAR,
-    MAX_MODEL_LEN,
     PLUGIN_DIRS_ENV_VAR,
     TRAINER_NAME,
     PromptType,
+    SaveStrategy,
     StorageType,
     SyncMethod,
     SyncStyle,
@@ -471,6 +471,8 @@ class TrainerConfig:
     actor_grad_clip: Optional[float] = None
     # TODO: extract more train-related params from underlying trainer engine
 
+    save_strategy: SaveStrategy = SaveStrategy.UNRESTRICTED
+
     # Only one needs to be set for `trainer_config` and `trainer_config_path`
     trainer_config: Any = field(default_factory=dict)
     trainer_config_path: str = ""
@@ -843,21 +845,7 @@ class Config:
                     f"`max_model_len` is set to {model.max_model_len} from `max_prompt_tokens` and `max_response_tokens`."
                 )
             else:
-                from transformers import AutoConfig, AutoTokenizer
-                from transformers.tokenization_utils_base import LARGE_INTEGER
-
-                tokenizer = AutoTokenizer.from_pretrained(model.model_path)
-                config = AutoConfig.from_pretrained(model.model_path)
-                max_model_len = min(
-                    getattr(tokenizer, "model_max_length", LARGE_INTEGER),
-                    getattr(config, "max_position_embeddings", LARGE_INTEGER),
-                )
-                if max_model_len >= LARGE_INTEGER:
-                    max_model_len = MAX_MODEL_LEN
-                    logger.warning(
-                        f"Failed to get `max_model_len` from model {model.model_path}, use {MAX_MODEL_LEN} instead."
-                    )
-                model.max_model_len = max_model_len
+                raise ValueError("Unable to determine `max_model_len`, please set it manually.")
 
         # both max_prompt_tokens and max_response_tokens are None
         if model.max_prompt_tokens is None and model.max_response_tokens is None:
