@@ -101,6 +101,7 @@ class GRPOGroupedAdvantage(GroupAdvantage):
         std_threshold: Optional[float] = None,
         duplicate_experiences: bool = False,
         rank_penalty: Optional[float] = None,
+        std_cal_level: str = "group",  # "group" or "batch"
     ) -> None:
         """Initialize the GRPO advantage function.
 
@@ -112,17 +113,28 @@ class GRPOGroupedAdvantage(GroupAdvantage):
                 count. Only used when `std_threshold` is not None (https://hkunlp.github.io/blog/2025/Polaris).
             rank_penalty (Optional[float]): A penalty applied to the rank of rewards to correct for bias
                 (https://arxiv.org/pdf/2506.02355).
+            std_cal_level (str): The scope for calculating the reward standard deviation for normalization.
+                Can be 'group' (default, std is calculated per group) or 'batch' (std is calculated
+                across the entire batch). The mean is always calculated per group.
+                Calculating the mean at the local (group) level and the standard deviation at the global (batch)
+                level enables more robust reward shaping(https://arxiv.org/pdf/2508.08221v1).
         """
         self.epsilon = epsilon
         self.std_threshold = std_threshold
         self.duplicate_experiences = duplicate_experiences
         self.rank_penalty = rank_penalty
+        self.std_cal_level = std_cal_level
+        if self.std_cal_level not in ["group", "batch"]:
+            raise ValueError("std_cal_level must be either 'group' or 'batch'")
 
     def group_experiences(self, exps):
         return group_by(exps, id_type="task")
 
     def calculate_group_advantage(
-        self, group_id: str, exps: List[Experience]
+        self,
+        group_id: str,
+        exps: List[Experience],
+        precomputed_std: Optional[torch.Tensor] = None,
     ) -> Tuple[List[Experience], Dict]:
         metrics = {}
         with torch.no_grad():
@@ -155,7 +167,10 @@ class GRPOGroupedAdvantage(GroupAdvantage):
                     exps.clear()
 
             for exp in exps:
-                score = (exp.reward - group_reward_mean) / (group_reward_std + self.epsilon)
+                if self.std_cal_level == "batch" and precomputed_std is not None:
+                    score = (exp.reward - group_reward_mean) / (precomputed_std + self.epsilon)
+                else:
+                    score = (exp.reward - group_reward_mean) / (group_reward_std + self.epsilon)
                 exp.advantages = score * exp.action_mask
                 exp.returns = exp.advantages.clone()
 
@@ -185,8 +200,19 @@ class GRPOGroupedAdvantage(GroupAdvantage):
     def process(self, exps):
         exp_groups = self.group_experiences(exps)
         metric_list = []
+        precomputed_std = None
+        if self.std_cal_level == "batch":
+            all_rewards = torch.tensor(
+                [exp.reward for exp in exps], dtype=torch.float32
+            )  # All rewards in the batch
+            if len(all_rewards) <= 1:
+                precomputed_std = torch.tensor(1.0)
+            else:
+                precomputed_std = torch.std(all_rewards)
         for group_id, group_exps in exp_groups.items():
-            group_exps, group_metrics = self.calculate_group_advantage(group_id, group_exps)
+            group_exps, group_metrics = self.calculate_group_advantage(
+                group_id, group_exps, precomputed_std=precomputed_std
+            )
             metric_list.append(group_metrics)
         try:
             # TODO: sum skipped count
@@ -201,4 +227,10 @@ class GRPOGroupedAdvantage(GroupAdvantage):
 
     @classmethod
     def default_args(cls) -> dict:
-        return {"epsilon": 1e-6}
+        return {
+            "epsilon": 1e-6,
+            "std_threshold": None,
+            "duplicate_experiences": False,
+            "rank_penalty": None,
+            "std_cal_level": "group",
+        }
