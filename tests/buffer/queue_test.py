@@ -93,14 +93,14 @@ class TestQueueBuffer(RayUnittestBaseAysnc):
         self.assertRaises(StopIteration, reader.read, batch_size=1)
 
     async def test_priority_queue_capacity(self):
-        # test queue capacity
+        # test priority queue capacity
         self.config.train_batch_size = 4
         meta = StorageConfig(
             name="test_buffer_small",
             schema_type="experience",
             storage_type=StorageType.QUEUE,
             max_read_timeout=1,
-            capacity=100,  # priority will use 2 * train_batch_size as capacity (8)
+            capacity=8,
             path=BUFFER_FILE_PATH,
             use_priority_queue=True,
             replay_buffer_kwargs={"priority_fn": "linear_decay", "decay": 0.6},
@@ -177,13 +177,13 @@ class TestQueueBuffer(RayUnittestBaseAysnc):
         self.assertFalse(thread.is_alive())
 
     async def test_priority_queue_buffer_reuse(self):
-        # test queue reuse
+        # test experience replay
         meta = StorageConfig(
             name="test_buffer_small",
             schema_type="experience",
             storage_type=StorageType.QUEUE,
             max_read_timeout=3,
-            capacity=4,
+            capacity=4,  # max total number of items; each item is List[Experience]
             path=BUFFER_FILE_PATH,
             use_priority_queue=True,
             reuse_cooldown_time=0.5,
@@ -299,6 +299,109 @@ class TestQueueBuffer(RayUnittestBaseAysnc):
         # model_version  4,   3,   2,   1
         # use_count      5,   4,   2,   1
         # priority      1.0, 0.6, 0.8, 0.4
+
+    async def test_priority_queue_reuse_count_control(self):
+        # test experience replay with linear decay and use count control
+        meta = StorageConfig(
+            name="test_buffer_small",
+            schema_type="experience",
+            storage_type=StorageType.QUEUE,
+            max_read_timeout=3,
+            capacity=4,  # max total number of items; each item is List[Experience]
+            path=BUFFER_FILE_PATH,
+            use_priority_queue=True,
+            reuse_cooldown_time=0.5,
+            replay_buffer_kwargs={
+                "priority_fn": "linear_decay_use_count_control_randomization",
+                "decay": 1.2,
+                "use_count_limit": 2,
+                "sigma": 0.0,
+            },
+        )
+        writer = QueueWriter(meta, self.config)
+        reader = QueueReader(meta, self.config)
+        for i in range(4):
+            writer.write(
+                [
+                    Experience(
+                        tokens=torch.tensor([1, 2, 3]),
+                        prompt_length=2,
+                        info={"model_version": i, "use_count": 0},
+                    ),
+                    Experience(
+                        tokens=torch.tensor([1, 2, 3]),
+                        prompt_length=2,
+                        info={"model_version": i, "use_count": 0},
+                    ),
+                ]
+            )
+
+        # should not be blocked
+        def replace_call():
+            writer.write(
+                [
+                    Experience(
+                        tokens=torch.tensor([1, 2, 3]),
+                        prompt_length=2,
+                        info={"model_version": 4, "use_count": 0},
+                    ),
+                    Experience(
+                        tokens=torch.tensor([1, 2, 3]),
+                        prompt_length=2,
+                        info={"model_version": 4, "use_count": 0},
+                    ),
+                ]
+            )
+
+        thread = threading.Thread(target=replace_call)
+        thread.start()
+        thread.join(timeout=2)
+        self.assertFalse(thread.is_alive())
+
+        exps = reader.read(batch_size=4)
+        self.assertEqual(len(exps), 4)
+        self.assertEqual(exps[0].info["model_version"], 4)
+        self.assertEqual(exps[0].info["use_count"], 1)
+        self.assertEqual(exps[2].info["model_version"], 3)
+        self.assertEqual(exps[2].info["use_count"], 1)
+
+        # model_version  4,   3,   2,   1
+        # use_count      1,   1,   0,   0
+        # priority      2.8, 1.8, 2.0, 1.0
+        # in queue       Y,   Y,   Y,   Y
+
+        time.sleep(1)
+        self.assertEqual(ray.get(reader.queue.length.remote()), 4)
+        exps = reader.read(batch_size=4)
+        self.assertEqual(len(exps), 4)
+        self.assertEqual(exps[0].info["model_version"], 4)
+        self.assertEqual(exps[0].info["use_count"], 2)
+        self.assertEqual(exps[2].info["model_version"], 2)
+        self.assertEqual(exps[2].info["use_count"], 1)
+
+        # model_version  4,   3,   2,   1
+        # use_count      2,   1,   1,   0
+        # priority      1.6, 1.8, 0.8, 1.0
+        # in queue       N,   Y,   Y,   Y
+        # model_version = 4 item is discarded for reaching use_count_limit
+
+        time.sleep(1)
+        self.assertEqual(ray.get(reader.queue.length.remote()), 3)
+        exps = reader.read(batch_size=4)
+        self.assertEqual(len(exps), 4)
+        self.assertEqual(exps[0].info["model_version"], 3)
+        self.assertEqual(exps[0].info["use_count"], 2)
+        self.assertEqual(exps[2].info["model_version"], 1)
+        self.assertEqual(exps[2].info["use_count"], 1)
+
+        # model_version  3,    2,    1
+        # use_count      2,    1,    1
+        # priority      0.6,  0.8, -0.2
+        # in queue       N,    Y,    Y
+        # model_version = 3 item is discarded for reaching use_count_limit
+
+        time.sleep(1)
+        self.assertEqual(ray.get(reader.queue.length.remote()), 2)
 
     def setUp(self):
         self.total_num = 8

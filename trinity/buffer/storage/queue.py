@@ -5,8 +5,9 @@ from abc import ABC, abstractmethod
 from collections import deque
 from copy import deepcopy
 from functools import partial
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+import numpy as np
 import ray
 from sortedcontainers import SortedDict
 
@@ -26,11 +27,48 @@ def is_json_file(path: str) -> bool:
 
 
 PRIORITY_FUNC = Registry("priority_fn")
+"""
+Each priority_fn,
+    Args:
+        item: List[Experience], assume that all experiences in it have the same model_version and use_count
+        kwargs: storage_config.replay_buffer_kwargs (except priority_fn)
+    Returns:
+        priority: float
+        put_into_queue: bool, decide whether to put item into queue
+Note that put_into_queue takes effect both for new item from the explorer and for item sampled from the buffer.
+"""
 
 
 @PRIORITY_FUNC.register_module("linear_decay")
-def linear_decay_priority(item: List[Experience], decay: float = 0.1):
-    return item[0].info["model_version"] - decay * item[0].info["use_count"]  # type: ignore
+def linear_decay_priority(
+    item: List[Experience],
+    decay: float = 2.0,
+) -> Tuple[float, bool]:
+    """Calculate priority by linear decay.
+
+    Priority is calculated as `model_version - decay * use_count. The item is always put back into the queue for reuse (as long as `reuse_cooldown_time` is not None).
+    """
+    priority = float(item[0].info["model_version"] - decay * item[0].info["use_count"])
+    put_into_queue = True
+    return priority, put_into_queue
+
+
+@PRIORITY_FUNC.register_module("linear_decay_use_count_control_randomization")
+def linear_decay_use_count_control_priority(
+    item: List[Experience],
+    decay: float = 2.0,
+    use_count_limit: int = 3,
+    sigma: float = 0.0,
+) -> Tuple[float, bool]:
+    """Calculate priority by linear decay, use count control, and randomization.
+
+    Priority is calculated as `model_version - decay * use_count`; if `sigma` is non-zero, priority is further perturbed by random Gaussian noise with standard deviation `sigma`.  The item will be put back into the queue only if use count does not exceed `use_count_limit`.
+    """
+    priority = float(item[0].info["model_version"] - decay * item[0].info["use_count"])
+    if sigma > 0.0:
+        priority += float(np.random.randn() * sigma)
+    put_into_queue = item[0].info["use_count"] < use_count_limit if use_count_limit > 0 else True
+    return priority, put_into_queue
 
 
 class QueueBuffer(ABC):
@@ -61,7 +99,7 @@ class QueueBuffer(ABC):
         if storage_config.use_priority_queue:
             reuse_cooldown_time = storage_config.reuse_cooldown_time
             replay_buffer_kwargs = storage_config.replay_buffer_kwargs
-            capacity = min(storage_config.capacity, config.train_batch_size * 2)
+            capacity = storage_config.capacity
             logger.info(
                 f"Using AsyncPriorityQueue with capacity {capacity}, reuse_cooldown_time {reuse_cooldown_time}."
             )
@@ -124,6 +162,7 @@ class AsyncPriorityQueue(QueueBuffer):
             kwargs: Additional keyword arguments for the priority function.
         """
         self.capacity = capacity
+        self.item_count = 0
         self.priority_groups = SortedDict()  # Maps priority -> deque of items
         self.priority_fn = partial(PRIORITY_FUNC.get(priority_fn), **kwargs)
         self.reuse_cooldown_time = reuse_cooldown_time
@@ -142,15 +181,20 @@ class AsyncPriorityQueue(QueueBuffer):
             await asyncio.sleep(delay)
         if len(item) == 0:
             return
-        priority = self.priority_fn(item=item)
+
+        priority, put_into_queue = self.priority_fn(item=item)
+        if not put_into_queue:
+            return
+
         async with self._condition:
-            if len(self.priority_groups) == self.capacity:
+            if self.item_count == self.capacity:
                 # If full, only insert if new item has higher or equal priority than the lowest
                 lowest_priority, item_queue = self.priority_groups.peekitem(index=0)
                 if lowest_priority > priority:
                     return  # Skip insertion if lower priority
                 # Remove the lowest priority item
                 item_queue.popleft()
+                self.item_count -= 1
                 if not item_queue:
                     self.priority_groups.popitem(index=0)
 
@@ -158,6 +202,7 @@ class AsyncPriorityQueue(QueueBuffer):
             if priority not in self.priority_groups:
                 self.priority_groups[priority] = deque()
             self.priority_groups[priority].append(item)
+            self.item_count += 1
             self._condition.notify()
 
     async def put(self, item: List[Experience]) -> None:
@@ -181,6 +226,7 @@ class AsyncPriorityQueue(QueueBuffer):
 
             _, item_queue = self.priority_groups.peekitem(index=-1)
             item = item_queue.popleft()
+            self.item_count -= 1
             if not item_queue:
                 self.priority_groups.popitem(index=-1)
 
@@ -188,12 +234,12 @@ class AsyncPriorityQueue(QueueBuffer):
             exp.info["use_count"] += 1
         # Optionally resubmit the item after a cooldown
         if self.reuse_cooldown_time is not None:
-            asyncio.create_task(self._put(item, self.reuse_cooldown_time))
+            asyncio.create_task(self._put(item, delay=self.reuse_cooldown_time))
 
         return item
 
     def qsize(self):
-        return len(self.priority_groups)
+        return self.item_count
 
     async def close(self) -> None:
         """

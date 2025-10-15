@@ -125,7 +125,7 @@ class StorageConfig:
     use_priority_queue: bool = False
     reuse_cooldown_time: Optional[float] = None
     replay_buffer_kwargs: dict = field(
-        default_factory=lambda: {"priority_fn": "linear_decay", "decay": 0.1}
+        default_factory=lambda: {"priority_fn": "linear_decay", "decay": 2.0}
     )
 
     # used for StorageType.SQL
