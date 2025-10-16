@@ -2,9 +2,8 @@ project: "Trinity-RFT-dapo-react"
 name: "Qwen3-4B-dapo-react"
 checkpoint_root_dir: ${oc.env:TRINITY_CHECKPOINT_ROOT_DIR,./checkpoints}
 algorithm:
-  algorithm_type: grpo
+  algorithm_type: multi_step_grpo
   repeat_times: 8
-  advantage_fn: step_wise_grpo
 model:
   model_path: ${oc.env:TRINITY_MODEL_PATH,Qwen/Qwen3-4B-Instruct-2507}
   max_response_tokens: 16384

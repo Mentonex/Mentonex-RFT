@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from omegaconf import OmegaConf
 
-from trinity.common.config import BufferConfig, Config, SynchronizerConfig
+from trinity.common.config import Config, SynchronizerConfig
 from trinity.common.constants import EXPLORER_NAME
 from trinity.utils.log import get_logger
 
@@ -338,7 +338,6 @@ class veRLConfig:
     custom_reward_function: CustomRewardFunction = field(default_factory=CustomRewardFunction)
     algorithm: Algorithm = field(default_factory=Algorithm)
     trainer: Trainer = field(default_factory=Trainer)
-    buffer: BufferConfig = field(default_factory=BufferConfig)
     synchronizer: Optional[SynchronizerConfig] = None
     enable_preview: bool = True
 
@@ -394,7 +393,6 @@ class veRLConfig:
         else:
             self.trainer.resume_mode = "auto"
 
-        self.buffer = config.buffer
         self.data.train_batch_size = (
             config.buffer.train_batch_size
         )  # kept to pass RayPPOTrainer._validate_config
