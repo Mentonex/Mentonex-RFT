@@ -83,6 +83,12 @@ class vLLMRolloutModel(InferenceModel):
             gpu_memory_utilization=config.gpu_memory_utilization,
             enable_chunked_prefill=config.enable_chunked_prefill,
             # max_num_batched_tokens=256, # you can further set this parameter to reduce the vllm peak memory usage
+            override_generation_config={  # TODO: find a way to unittest this
+                "temperature": config.temperature,
+                "top_p": config.top_p,
+                "top_k": config.top_k,
+                "max_new_tokens": config.max_response_tokens,
+            },
             disable_log_stats=True,
             enable_lora=config.enable_lora,
             **config.lora_kwargs,
