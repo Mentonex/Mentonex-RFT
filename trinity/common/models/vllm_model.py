@@ -51,6 +51,8 @@ class vLLMRolloutModel(InferenceModel):
             os.environ["VLLM_RAY_PER_WORKER_GPUS"] = str(int(config.use_v1))
             os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
             os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
+        if get_vllm_version() >= parse_version("0.11.0"):
+            os.environ["VLLM_ALLREDUCE_USE_SYMM_MEM"] = "0"
         self.default_sampling_params = vllm.SamplingParams(
             n=1,
             temperature=0.0,
