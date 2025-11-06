@@ -19,12 +19,12 @@ class BOTSMathBoxedWorkflow(MathBoxedWorkflow):
         return self.task_desc
 
     @property
-    def task_desc(self) -> Union[str, None]:
+    def task_desc(self) -> Union[str, None]:  # type: ignore [override]
         prompt_key = self.format_args.prompt_key
         return nested_query(prompt_key, self.raw_task)  # type: ignore
 
     @property
-    def truth(self) -> Union[str, None]:
+    def truth(self) -> Union[str, None]:  # type: ignore [override]
         response_key = self.format_args.response_key
         return nested_query(response_key, self.raw_task)
 
