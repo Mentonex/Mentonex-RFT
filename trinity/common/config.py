@@ -447,7 +447,7 @@ class InferenceModelConfig:
     engine_num: int = 1
     tensor_parallel_size: int = 1
     use_v1: bool = True
-    enforce_eager: bool = True
+    enforce_eager: bool = False
     enable_prefix_caching: bool = False
     enable_chunked_prefill: bool = False
     gpu_memory_utilization: float = 0.9
