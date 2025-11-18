@@ -417,6 +417,9 @@ class ModelConfig:
     critic_model_path: str = ""
 
     custom_chat_template: Optional[str] = None
+    chat_template_path: Optional[
+        str
+    ] = None  # path to the chat template file, e.g., jinja2 type; overrides `custom_chat_template` if set
 
     # rollout args
     temperature: float = 1.0
@@ -885,6 +888,7 @@ class Config:
             set_if_none(taskset.rollout_args, "top_k", self.model.top_k)
             set_if_none(taskset.rollout_args, "logprobs", self.model.logprobs)
             set_if_none(taskset.rollout_args, "max_tokens", self.model.max_response_tokens)
+            set_if_none(taskset.format, "chat_template", self.model.custom_chat_template)
 
         for idx, dataset in enumerate(explorer_input.eval_tasksets):
             if not dataset.path:
@@ -1079,6 +1083,11 @@ class Config:
         if not model.critic_model_path:
             model.critic_model_path = model.model_path
 
+        # check template
+        if model.chat_template_path and model.custom_chat_template is None:
+            with open(model.chat_template_path, "r") as f:
+                model.custom_chat_template = f.read()
+
         # check max_model_len, max_prompt_tokens, max_response_tokens
 
         # if all three are set, check if they are valid
@@ -1207,6 +1216,11 @@ class Config:
             model_args = rollout_args + length_args + rope_args
             for args in ["model_path"] + model_args:
                 setattr(self.explorer.rollout_model, args, getattr(self.model, args))
+            if (
+                self.explorer.rollout_model.chat_template is None
+                and self.model.custom_chat_template is not None
+            ):
+                self.explorer.rollout_model.chat_template = self.model.custom_chat_template
             for aux_model in self.explorer.auxiliary_models:
                 if not aux_model.model_path:
                     raise ValueError("auxiliary model's model_path is required.")
