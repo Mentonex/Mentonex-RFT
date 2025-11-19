@@ -549,6 +549,10 @@ class AlgorithmConfig:
     # If not set, use entropy_loss_fn.default_args()
     entropy_loss_fn_args: Optional[dict] = None
 
+    # aggregation mode for losses: 'token-mean' or 'seq-mean-token-sum' or 'seq-mean-token-mean' or 'seq-mean-token-sum-norm'
+    # If not set, use 'token-mean'
+    loss_agg_mode: Optional[str] = None
+
 
 @dataclass
 class ClusterConfig:
@@ -1059,6 +1063,7 @@ class Config:
             "kl_penalty_fn": "none",
             "kl_loss_fn": "k2",
             "entropy_loss_fn": "default",
+            "loss_agg_mode": "token-mean",
         }
         default_config.update(algorithm.default_config())
         for key, value in default_config.items():
@@ -1077,6 +1082,9 @@ class Config:
         check_and_set("kl_loss_fn", KL_FN, "kl_loss_fn_args")
         check_and_set("kl_penalty_fn", KL_FN, "kl_penalty_fn_args")
         check_and_set("entropy_loss_fn", ENTROPY_LOSS_FN, "entropy_loss_fn_args")
+        if "loss_agg_mode" in self.algorithm.policy_loss_fn_args:  # type: ignore [operator]
+            # override loss_agg_mode in policy_loss_fn_args
+            self.algorithm.policy_loss_fn_args["loss_agg_mode"] = self.algorithm.loss_agg_mode  # type: ignore [index]
 
     def _check_model(self) -> None:
         model = self.model
