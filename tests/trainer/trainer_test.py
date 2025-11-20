@@ -113,6 +113,8 @@ class TestTrainerCountdown(BaseTrainerCase):
         self.assertEqual(parser.metric_max_step(actor_metrics[0]), 8)
         actor_kl_metrics = parser.metric_list("actor/kl")
         self.assertTrue(len(actor_kl_metrics) > 0)
+        actor_kl_loss = parser.metric_values("actor/kl_loss")
+        self.assertEqual(actor_kl_loss[0], 0.0)
         critic_kl_metrics = parser.metric_list("critic/kl")
         self.assertTrue(len(critic_kl_metrics) > 0)
         response_metrics = parser.metric_list("response_length")
@@ -138,6 +140,9 @@ class TestTrainerCountdown(BaseTrainerCase):
         self.config.mode = "bench"
         self.config.synchronizer.sync_method = SyncMethod.CHECKPOINT
         self.config.explorer.bench_on_latest_checkpoint = False
+        self.config.buffer.explorer_input.taskset = None
+        self.config.buffer.explorer_input.tasksets = []
+        self.config.buffer.trainer_input.experience_buffer = None
         self.config.check_and_update()
         bench(self.config)
         parser = TensorBoardParser(os.path.join(self.config.monitor.cache_dir, "tensorboard"))

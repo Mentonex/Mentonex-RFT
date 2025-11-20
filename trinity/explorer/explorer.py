@@ -52,7 +52,9 @@ class Explorer:
         self.models, self.auxiliary_models = create_inference_models(config)
         self.experience_pipeline = self._init_experience_pipeline()
         self.taskset = (
-            TasksetScheduler(explorer_state, config) if self.config.mode != "serve" else None
+            TasksetScheduler(explorer_state, config)
+            if self.config.mode not in {"bench", "serve"}
+            else None
         )
         self.scheduler = None
         self.monitor = MONITOR.get(self.config.monitor.monitor_type)(
@@ -151,7 +153,8 @@ class Explorer:
         """Preparation before running."""
         try:
             # prepare experience pipeline
-            await self.experience_pipeline.prepare.remote()
+            if self.experience_pipeline:
+                await self.experience_pipeline.prepare.remote()
             self.logger.info("Experience pipeline is ready.")
             # make sure all rollout models are ready
             run_api_ref = [model.run_api_server.remote() for model in self.models]
@@ -406,6 +409,8 @@ class Explorer:
 
     def _init_experience_pipeline(self) -> ray.actor.ActorHandle:
         """Init experience pipeline for the explorer."""
+        if self.config.mode == "bench":
+            return None
         node_id = ray.get_runtime_context().get_node_id()
         return (
             ray.remote(ExperiencePipeline)
