@@ -144,6 +144,24 @@ class ReplayBufferConfig:
 
 
 @dataclass
+class OverRolloutConfig:
+    """Config for over-rollout in explorer."""
+
+    ratio: float = 0.0  # explorer will only wait for (1 - over_rollout.ratio) * batch_size of tasks at each step
+    wait_after_min: float = 30.0  # wait 30 s after reaching minimum task threshold
+    # more settings will be added in the future
+    # e.g., postpone tasks into the next step if not finished in time
+
+
+@dataclass
+class DynamicTimeoutConfig:
+    """Config for dynamic timeout in explorer."""
+
+    enable: bool = False
+    ratio: float = 3.0  # the timeout for each step will be min(max_timeout, average_time_per_task * dynamic_timeout.ratio)
+
+
+@dataclass
 class StorageConfig:
     """Storage config for both taskset and experience buffer.
     Not visible to users directly. Please use ExperienceBufferConfig or TasksetConfig instead.
@@ -619,7 +637,7 @@ class ExplorerConfig:
     # for workflow runner
     # number of workflow runners.
     runner_per_model: int = 8  # number of runners per each rollout model
-    max_timeout: int = 1800  # wait each task for 30 minutes
+    max_timeout: int = 1800  # wait each task for 30 minutes at most
     max_retry_times: int = 2  # retry each task for 2 times if it fails or timeout
     env_vars: dict = field(default_factory=dict)  # environment variables for workflow runner
     max_repeat_times_per_runner: Optional[
@@ -649,6 +667,9 @@ class ExplorerConfig:
     service_status_check_interval: int = 60
     # keep at least 1 model in running status
     min_running_model_num: int = 1
+    # Experimental feature
+    over_rollout: OverRolloutConfig = field(default_factory=OverRolloutConfig)
+    dynamic_timeout: DynamicTimeoutConfig = field(default_factory=DynamicTimeoutConfig)
 
 
 @dataclass
@@ -1242,6 +1263,15 @@ class Config:
                     raise ValueError("auxiliary model's model_path is required.")
                 for args in model_args:
                     set_if_none(aux_model, args, getattr(self.model, args))
+
+            if self.explorer.over_rollout.ratio > 0.0:
+                if not (0.0 <= self.explorer.over_rollout.ratio < 1.0):
+                    raise ValueError("over_rollout_ratio should be in [0.0, 1.0)")
+                if self.synchronizer.sync_style == SyncStyle.FIXED:
+                    raise ValueError(
+                        "over_rollout_ratio is not compatible with fixed sync_style, please set "
+                        "`synchronizer.sync_style` to `dynamic_by_explorer` or `dynamic_by_trainer`."
+                    )
 
             # for lora configs
             if self.model.lora_configs is not None:
