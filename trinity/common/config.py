@@ -84,7 +84,7 @@ class GenerationConfig:
     logprobs: Optional[int] = None  # 0  # vLLM return `logprobs + 1` elements
     max_tokens: Optional[int] = None  # if None, use model.max_response_tokens
     # repeat each task for `n` times
-    # ! DO NOT SET in `buffer.explorer_input.taskset.rollout_args`
+    # ! DO NOT SET, it will be set by `algorithm.repeat_times` or `buffer.explorer_input.eval_tasksets[i].repeat_times`
     n: int = 1
 
 
@@ -249,10 +249,10 @@ class TasksetConfig:
 
     enable_progress_bar: bool = False
 
+    # ! This setting is only valid for `eval_taskset`; for other taskset, it will be overridden by `algorithm.repeat_times`.
+    repeat_times: int = 1
     # ! DO NOT SET, automatically load from checkpoint
     index: int = 0
-    # ! DO NOT SET, automatically set from algorithm.repeat_times
-    repeat_times: int = 1
     # ! DO NOT SET, automatically set based on train/eval
     is_eval: bool = False
     # ! DO NOT SET, automatically set from buffer.batch_size
@@ -927,7 +927,7 @@ class Config:
             dataset.batch_size = self.buffer.batch_size
             if not dataset.name:
                 dataset.name = f"eval_taskset_{idx}"
-            set_if_none(dataset, "repeat_times", 1)
+
             # eval_workflow has higher priority than workflow in eval tasksets, so we set it first
             set_if_none(dataset, "default_workflow_type", explorer_input.default_eval_workflow_type)
             set_if_none(dataset, "default_workflow_type", explorer_input.default_workflow_type)

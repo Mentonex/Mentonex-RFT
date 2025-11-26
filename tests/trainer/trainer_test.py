@@ -84,12 +84,11 @@ class TestTrainerCountdown(BaseTrainerCase):
         self.config.buffer.explorer_input.taskset.task_selector = TaskSelectorConfig(
             selector_type="shuffle", seed=42
         )
-        self.config.buffer.explorer_input.eval_tasksets.append(
-            get_unittest_dataset_config("countdown", "test")
-        )
-        self.config.buffer.explorer_input.eval_tasksets.append(
-            get_unittest_dataset_config("copy_countdown", "test")
-        )
+        eval_tasksets = self.config.buffer.explorer_input.eval_tasksets
+        eval_tasksets.append(get_unittest_dataset_config("countdown", "test"))
+        eval_tasksets.append(get_unittest_dataset_config("copy_countdown", "test"))
+        eval_tasksets[0].repeat_times = 4
+        eval_tasksets[1].repeat_times = 4
         self.config.trainer.save_interval = 4
         self.config.check_and_update()
         _trainer_config = self.config.trainer.trainer_config
@@ -148,14 +147,15 @@ class TestTrainerCountdown(BaseTrainerCase):
         bench(self.config)
         parser = TensorBoardParser(os.path.join(self.config.monitor.cache_dir, "tensorboard"))
         for prefix in ["eval", "bench"]:
-            countdown_metrics = parser.metric_list(f"{prefix}/countdown")
-            copy_countdown_metrics = parser.metric_list(f"{prefix}/copy_countdown")
-            self.assertTrue(len(countdown_metrics) > 0)
-            self.assertTrue(len(copy_countdown_metrics) > 0)
-            countdown_metric_steps = parser.metric_steps(countdown_metrics[0])
-            countdown_copy_metric_steps = parser.metric_steps(copy_countdown_metrics[0])
-            self.assertEqual([0, 4, 8], countdown_metric_steps)
-            self.assertEqual([0, 4, 8], countdown_copy_metric_steps)
+            for taskset_name in ["countdown", "copy_countdown"]:
+                metrics = parser.metric_list(f"{prefix}/{taskset_name}")
+                self.assertTrue(len(metrics) > 0)
+                for eval_stats in ["mean", "best", "worst"]:
+                    for k in [2, 4]:
+                        for stats in ["mean", "std"]:
+                            metric_name = f"{prefix}/{taskset_name}/score/{eval_stats}@{k}/{stats}"
+                            metric_steps = parser.metric_steps(metric_name)
+                            self.assertEqual(metric_steps, [0, 4, 8])
 
     def tearDown(self):
         # remove dir only when the test passed
@@ -969,6 +969,7 @@ class TestTrainerLoRA(BaseTrainerCase):
         self.config.buffer.explorer_input.eval_tasksets.append(
             get_unittest_dataset_config("gsm8k", "test")
         )
+        self.config.buffer.explorer_input.eval_tasksets[0].repeat_times = 8
         self.config.model.model_path = get_model_path()
         self.config.algorithm.algorithm_type = "grpo"
         self.config.algorithm.advantage_fn = "grpo"
@@ -1019,8 +1020,12 @@ class TestTrainerLoRA(BaseTrainerCase):
         for prefix in ["eval", "bench"]:
             gsm8k_metrics = parser.metric_list(f"{prefix}/gsm8k")
             self.assertTrue(len(gsm8k_metrics) > 0)
-            gsm8k_metric_steps = parser.metric_steps(gsm8k_metrics[0])
-            self.assertEqual([0, 2], gsm8k_metric_steps)
+            for eval_stats in ["mean", "best", "worst"]:
+                for k in [2, 4, 8]:
+                    for stats in ["mean", "std"]:
+                        metric_name = f"{prefix}/gsm8k/accuracy/{eval_stats}@{k}/{stats}"
+                        metric_steps = parser.metric_steps(metric_name)
+                        self.assertEqual(metric_steps, [0, 2])
 
     def tearDown(self):
         shutil.rmtree(self.config.checkpoint_job_dir)
