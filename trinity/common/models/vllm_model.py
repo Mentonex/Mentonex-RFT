@@ -191,12 +191,36 @@ class vLLMRolloutModel(InferenceModel):
         """
         if self.tokenizer is None:
             await self._initialize_tokenizer()
+
+        # Tokenize once without truncation to check if truncation is needed
         token_ids = self.tokenizer(  # type: ignore
             prompt,
-            truncation=self.config.enable_prompt_truncation,
-            max_length=self.config.max_prompt_tokens,
+            truncation=False,
             return_tensors="pt",
-        )["input_ids"][0].tolist()
+        )[
+            "input_ids"
+        ][0].tolist()
+
+        # Check if truncation is needed and apply it
+        if self.config.enable_prompt_truncation and self.config.max_prompt_tokens is not None:
+            if len(token_ids) > self.config.max_prompt_tokens:
+                self.logger.warning(
+                    f"Prompt was truncated to {self.config.max_prompt_tokens} tokens"
+                )
+                token_ids = token_ids[: self.config.max_prompt_tokens + 1]  # leave one for response
+                return [
+                    Experience(
+                        tokens=token_ids,
+                        logprobs=torch.zeros(1, dtype=torch.float32),
+                        prompt_length=len(token_ids) - 1,
+                        prompt_text=self.tokenizer.decode(token_ids[:-1]),
+                        response_text=self.tokenizer.decode(token_ids[-1]),
+                        truncate_status="prompt_truncated",
+                        reward=0.0,
+                    )
+                    for i in range(kwargs.get("n", 1))
+                ]
+
         output = await self._generate_internal(
             prompt={"prompt_token_ids": token_ids}, lora_request=lora_request, **kwargs
         )
@@ -397,10 +421,10 @@ class vLLMRolloutModel(InferenceModel):
 
         # Truncate tokens if they exceed the length limit
         assert token_ids is not None
-        is_truncated = False  # TODO: add to experience itself
+        truncate_status = None
         if self.config.max_model_len is not None and self.config.max_model_len > 0:
             if len(token_ids) > self.config.max_model_len - 1:
-                is_truncated = True
+                truncate_status = "response_truncated"
                 self.logger.warning(
                     f"Warning: {len(token_ids) = } exceeds the length limit {self.config.max_model_len-1 = }"
                 )
@@ -417,7 +441,7 @@ class vLLMRolloutModel(InferenceModel):
             prompt_length=prompt_length,
             action_mask=action_mask[prompt_length:],  # Exclude the prompt tokens
             messages=messages,
-            info={"is_truncated": is_truncated},
+            truncate_status=truncate_status,
         )
 
     async def shutdown(self):

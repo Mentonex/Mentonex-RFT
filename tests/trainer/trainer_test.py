@@ -1082,3 +1082,44 @@ class TestOverRollout(BaseTrainerCase):
     def tearDown(self):
         # remove dir only when the test passed
         shutil.rmtree(self.config.checkpoint_job_dir)
+
+
+class TestTrainerPromptTruncation(BaseTrainerCase):
+    def test_trainer(self):
+        self.config.model.max_model_len = 20
+        self.config.model.max_prompt_tokens = 5
+        self.config.model.max_response_tokens = 15
+        self.config.model.enable_prompt_truncation = True
+        self.config.algorithm.algorithm_type = "grpo"
+        self.config.algorithm.advantage_fn = "grpo"
+        self.config.algorithm.kl_loss_fn = "none"
+        self.config.algorithm.repeat_times = 2
+        self.config.buffer.batch_size = 4
+        self.config.buffer.total_steps = 2
+        self.config.buffer.explorer_input.taskset = get_unittest_dataset_config("gsm8k")
+        self.config.check_and_update()
+        both(self.config)
+
+        parser = TensorBoardParser(os.path.join(self.config.monitor.cache_dir, "tensorboard"))
+        rollout_metrics = parser.metric_list("rollout")
+        self.assertTrue(len(rollout_metrics) > 0)
+        self.assertEqual(parser.metric_max_step(rollout_metrics[0]), 2)
+        actor_metrics = parser.metric_list("actor")
+        self.assertTrue(len(actor_metrics) > 0)
+        self.assertEqual(parser.metric_max_step(actor_metrics[0]), 2)
+        max_prompt_length = parser.metric_values("prompt_length/max")
+        self.assertEqual(max(max_prompt_length), 5)
+        min_prompt_length = parser.metric_values("prompt_length/min")
+        self.assertEqual(min(min_prompt_length), 5)
+        max_response_length = parser.metric_values("response_length/max")
+        self.assertEqual(max(max_response_length), 1)
+        min_response_length = parser.metric_values("response_length/min")
+        self.assertEqual(min(min_response_length), 1)
+        final_loss = parser.metric_values("actor/final_loss")
+        self.assertEqual(final_loss[0], 0.0)
+        grad_norm = parser.metric_values("actor/grad_norm")
+        self.assertEqual(grad_norm[0], 0.0)
+
+    def tearDown(self):
+        # remove dir only when the test passed
+        shutil.rmtree(self.config.checkpoint_job_dir)

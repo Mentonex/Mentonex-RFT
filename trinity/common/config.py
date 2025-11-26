@@ -457,7 +457,8 @@ class ModelConfig:
     max_response_tokens: Optional[int] = None
     # the minimum number of tokens for the response
     min_response_tokens: int = 1
-    # whether to truncate the prompt; if set to True, the prompt will be truncated to `max_prompt_tokens` tokens.
+    # whether to truncate the prompt; if set to True, the prompt will be truncated to `max_prompt_tokens` tokens;
+    # not applicable for OpenAI API
     enable_prompt_truncation: bool = True
 
     # lora config
@@ -1192,7 +1193,7 @@ class Config:
         if model.enable_prompt_truncation is True:
             if model.max_prompt_tokens is None:
                 raise ValueError(
-                    "When `model.enable_prompt_truncation` is True, `model.max_prompt_tokens` must be set properly."
+                    "When `model.enable_prompt_truncation` is True, `model.max_prompt_tokens` must be set properly. This function does not work with OpenAI API mode."
                 )
             logger.warning(
                 f"`enable_prompt_truncation` is set to True; the prompt will be truncated to `max_prompt_tokens`={model.max_prompt_tokens} tokens if it is too long."

@@ -104,6 +104,9 @@ class Experience:
     token_level_reward: Optional[Tensor] = None  # [resp_length]
     advantages: Optional[Tensor] = None  # [resp_length]
     returns: Optional[Tensor] = None  # [resp_length]
+    truncate_status: Optional[
+        str
+    ] = None  # The status of truncation, e.g., "prompt_truncated", "response_truncated"; Not working for openai api
     info: dict = field(
         default_factory=dict
     )  # Additional information about the experience, can also be used to store custom fields
@@ -140,6 +143,7 @@ class Experience:
         token_level_reward=None,
         advantages=None,
         returns=None,
+        truncate_status=None,
         info=None,
         metrics=None,
         prompt_length=1,
@@ -165,10 +169,13 @@ class Experience:
             assert (
                 prompt_length > 0
             ), "Prompt length must be greater than 0 for single-turn experiences."
-            assert (
-                len(tokens) > prompt_length
-            ), f"Token ids must be longer than the prompt length. Got len(tokens)={len(tokens)}, prompt_length={prompt_length}."
-            action_mask = torch.ones(len(tokens) - prompt_length, dtype=torch.bool)
+            if truncate_status != "prompt_truncated":
+                assert (
+                    len(tokens) > prompt_length
+                ), f"Token ids must be larger than the prompt length. Got len(tokens)={len(tokens)}, prompt_length={prompt_length}."
+                action_mask = torch.ones(len(tokens) - prompt_length, dtype=torch.bool)
+            else:
+                action_mask = torch.zeros(len(logprobs), dtype=torch.bool)
         elif experience_type == "dpo":
             prompt_length = len(tokens)
         if eid is None:
@@ -196,6 +203,7 @@ class Experience:
         self.experience_type = experience_type
         self.info = info or {}
         self.metrics = metrics or {}
+        self.truncate_status = truncate_status
         self.prompt_length = prompt_length
         self.response_text = response_text
         self.prompt_text = prompt_text
@@ -264,6 +272,8 @@ class Experience:
             res["rejected_messages"] = self.rejected_messages
         if self.reward is not None:
             res["reward"] = float(self.reward)
+        if self.truncate_status is not None:
+            res["truncate_status"] = self.truncate_status
         return res
 
     @classmethod
