@@ -761,3 +761,6 @@ class TestWorkflowRunner(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(exps), 2)
         exps = runner.model_wrapper.extract_experience_from_history(clear_history=False)
         self.assertEqual(len(exps), 0)
+
+    def tearDown(self):
+        ray.shutdown(_exiting_interpreter=True)

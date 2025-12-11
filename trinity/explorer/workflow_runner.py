@@ -65,11 +65,12 @@ class WorkflowRunner:
             enable_lora=config.explorer.rollout_model.enable_lora,
             enable_history=config.explorer.rollout_model.enable_history,
         )
-        self.auxiliary_models = [
+        self.auxiliary_models = auxiliary_models or []
+        self.auxiliary_model_wrappers = [
             ModelWrapper(
                 model,
             )
-            for model in (auxiliary_models or [])
+            for model in self.auxiliary_models
         ]
         self.auxiliary_model_clients = []
         self.auxiliary_model_async_clients = []
@@ -86,9 +87,9 @@ class WorkflowRunner:
         """Prepare the runner."""
         await asyncio.gather(
             self.model_wrapper.prepare(),
-            *(aux_model.prepare() for aux_model in self.auxiliary_models),
+            *(aux_model.prepare() for aux_model in self.auxiliary_model_wrappers),
         )
-        for model in self.auxiliary_models:
+        for model in self.auxiliary_model_wrappers:
             api_client = model.get_openai_client()
             async_api_client = model.get_openai_async_client()
             self.auxiliary_model_clients.append(api_client)
@@ -256,6 +257,13 @@ class DebugWorkflowRunner(WorkflowRunner):
                 wrap_in_ray=False,
             )
         )
+
+    async def prepare(self) -> None:
+        # make sure models are started
+        prepare_refs = [self.model.prepare.remote()]
+        prepare_refs.extend(model.prepare.remote() for model in self.auxiliary_models)
+        await asyncio.gather(*prepare_refs)
+        await super().prepare()
 
     async def debug(self) -> None:
         """Run the debug workflow."""

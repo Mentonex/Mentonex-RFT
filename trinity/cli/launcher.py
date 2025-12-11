@@ -260,7 +260,7 @@ def debug(
     from trinity.common.models import create_debug_inference_model
 
     if module == "inference_model":
-        create_debug_inference_model(config)
+        asyncio.run(create_debug_inference_model(config))
 
     elif module == "workflow":
         from trinity.explorer.workflow_runner import DebugWorkflowRunner

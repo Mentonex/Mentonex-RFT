@@ -115,9 +115,9 @@ class vLLMRolloutModel(InferenceModel):
             **config.lora_kwargs,
         )
         if get_vllm_version() > parse_version("0.10.0"):
-            engine_args.enable_log_requests = True
+            engine_args.enable_log_requests = config.enable_log_requests
         else:
-            engine_args.disable_log_requests = True
+            engine_args.disable_log_requests = not config.enable_log_requests
         if get_vllm_version() >= parse_version("0.11.0"):
             engine_args.reasoning_parser = config.reasoning_parser
         self.async_llm = vllm.AsyncLLMEngine.from_engine_args(engine_args)

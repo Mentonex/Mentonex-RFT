@@ -1017,8 +1017,8 @@ class Config:
         experience_pipeline = self.data_processor.experience_pipeline
         if experience_pipeline is not None and self.mode in {"explore", "both", "serve"}:
             if experience_pipeline.save_input and experience_pipeline.input_save_path is None:
-                experience_pipeline.input_save_path = os.path.join(
-                    self.buffer.cache_dir, "explorer_output.jsonl"  # type: ignore[arg-type]
+                experience_pipeline.input_save_path = self._default_storage_path(
+                    StorageType.SQL.value, "explorer_output"
                 )
                 logger.info(
                     f"Auto set `data_processor.experience_pipeline.input_save_path` to {experience_pipeline.input_save_path}"

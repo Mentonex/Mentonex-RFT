@@ -49,7 +49,7 @@ def get_color_for_action_mask(action_mask_value: int) -> str:
         return "#ffcdd2"
 
 
-def render_experience(exp: Experience, exp_index: int, tokenizer):
+def render_experience(exp: Experience, tokenizer):
     """Render a single experience sequence in Streamlit."""
     token_ids = exp.tokens
     logprobs = exp.logprobs
@@ -91,76 +91,57 @@ def render_experience(exp: Experience, exp_index: int, tokenizer):
             .replace("'", "&#39;")
         )
 
-    # Build full HTML (with CSS)
-    html = f"""
+    # === Use Streamlit Native Components for Prompt and Response ===
+    st.subheader(f"Experience [{exp.eid}]")
+
+    # Prompt section using st.text_area
+    st.markdown("**📝 Prompt:**")
+    st.code(prompt_text, language=None, wrap_lines=True, line_numbers=True)
+
+    # Response section using st.text_area
+    st.markdown("**💬 Response:**")
+    st.code(response_text, language=None, wrap_lines=True, line_numbers=True)
+
+    # Reward and other info
+    st.markdown("**🏆 Reward and Other Info:**")
+    reward, info, metrics = st.columns(3)
+    reward.metric("**Reward:**", f"{exp.reward or 0.0:.4f}")
+    metrics.markdown("**Metrics:**")
+    metrics.json(exp.metrics or {}, expanded=False)
+    info.markdown("**Info:**")
+    info.json(exp.info or {}, expanded=False)
+
+    # Response Tokens Detail section using components.html
+    st.markdown("**🔍 Response Tokens Detail:**")
+
+    # Build HTML only for Response Tokens Detail
+    html = """
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
         <style>
-            * {{
+            * {
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
-            }}
+            }
 
-            body {{
+            body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
                 padding: 10px;
-            }}
+            }
 
-            .sequence-container {{
-                border: 2px solid #e0e0e0;
-                border-radius: 10px;
-                padding: 20px;
-                background-color: #f8f9fa;
-                height: auto;
-            }}
-
-            .sequence-header {{
-                font-size: 18px;
-                font-weight: bold;
-                margin-bottom: 15px;
-                color: #333;
-            }}
-
-            .text-section {{
-                background-color: white;
-                padding: 15px;
-                border-radius: 5px;
-                margin-bottom: 15px;
-                border-left: 4px solid #4CAF50;
-            }}
-
-            .prompt-section {{
-                background-color: #e3f2fd;
-                padding: 10px;
-                border-radius: 5px;
-                margin-bottom: 10px;
-                font-family: 'Courier New', monospace;
-                white-space: pre-wrap;
-                word-wrap: break-word;
-            }}
-
-            .response-section {{
-                background-color: #fff3e0;
-                padding: 10px;
-                border-radius: 5px;
-                font-family: 'Courier New', monospace;
-                white-space: pre-wrap;
-                word-wrap: break-word;
-            }}
-
-            .token-container {{
+            .token-container {
                 display: flex;
                 flex-wrap: wrap;
                 gap: 5px;
                 padding: 15px;
                 background-color: white;
                 border-radius: 5px;
-            }}
+            }
 
-            .token-box {{
+            .token-box {
                 display: inline-flex;
                 flex-direction: column;
                 align-items: center;
@@ -169,15 +150,15 @@ def render_experience(exp: Experience, exp_index: int, tokenizer):
                 border: 1px solid #ddd;
                 min-width: 60px;
                 transition: transform 0.2s, box-shadow 0.2s;
-            }}
+            }
 
-            .token-box:hover {{
+            .token-box:hover {
                 transform: scale(1.5);
                 box-shadow: 0 4px 8px rgba(0,0,0,0.2);
                 z-index: 10;
-            }}
+            }
 
-            .token-text {{
+            .token-text {
                 font-family: 'Courier New', monospace;
                 font-size: 14px;
                 font-weight: bold;
@@ -185,44 +166,18 @@ def render_experience(exp: Experience, exp_index: int, tokenizer):
                 text-align: center;
                 word-break: break-all;
                 max-width: 100px;
-            }}
+            }
 
-            .token-logprob {{
+            .token-logprob {
                 font-size: 11px;
                 color: #555;
                 font-family: 'Courier New', monospace;
                 text-align: center;
-            }}
-
-            .label-text {{
-                font-weight: bold;
-                color: #1976d2;
-                margin-bottom: 5px;
-                margin-top: 10px;
-            }}
-
-            .section-divider {{
-                margin: 20px 0;
-                border-top: 2px dashed #ccc;
-            }}
+            }
         </style>
     </head>
     <body>
-        <div class="sequence-container">
-            <div class="sequence-header">Experience {exp_index + 1}</div>
-
-            <div class="text-section">
-                <div class="label-text">📝 Prompt:</div>
-                <div class="prompt-section">{html_escape(prompt_text)}</div>
-
-                <div class="label-text">💬 Response:</div>
-                <div class="response-section">{html_escape(response_text)}</div>
-            </div>
-
-            <div class="section-divider"></div>
-
-            <div class="label-text">🔍 Response Tokens Detail:</div>
-            <div class="token-container">
+        <div class="token-container">
     """
 
     # Add each response token
@@ -236,19 +191,17 @@ def render_experience(exp: Experience, exp_index: int, tokenizer):
         html += f"""
                 <div class="token-box" style="background-color: {bg_color};">
                     <div class="token-text">{token_display}</div>
-                    <div class="token-logprob">{logprob:.3f}</div>
+                    <div class="token-logprob">{logprob:.4f}</div>
                 </div>
         """
-
     html += """
-            </div>
         </div>
     </body>
     </html>
     """
 
-    # Use components.html instead of st.markdown
-    components.html(html, height=1200, scrolling=True)
+    # Use components.html for token details only
+    components.html(html, height=200, scrolling=True)
 
 
 def parse_args():
@@ -339,10 +292,22 @@ def main():
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
 
-    # Render experiences
+    # Generate catalog in sidebar
+    exp_catalog = []  # [(eid, subheader_text)]
     if experiences:
-        for i, exp in enumerate(experiences):
-            render_experience(exp, offset + i, tokenizer)
+        for exp in experiences:
+            exp_catalog.append(exp.eid)
+
+    if exp_catalog:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**Contents**")
+        catalog_md = "\n".join([f"- [ {eid} ](#exp-{eid})" for eid in exp_catalog])
+        st.sidebar.markdown(catalog_md, unsafe_allow_html=True)
+
+    if experiences:
+        for exp in experiences:
+            st.markdown(f'<a name="exp-{exp.eid}"></a>', unsafe_allow_html=True)
+            render_experience(exp, tokenizer)
     else:
         st.warning("No experience data found")
 
