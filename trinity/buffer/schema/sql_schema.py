@@ -38,6 +38,8 @@ class ExperienceModel(Base):  # type: ignore
     # for multi turn
     message_list = Column(JSON, nullable=True)
     reward = Column(Float, nullable=True)
+    # for step info
+    model_version = Column(Integer, nullable=True, index=True)
     # serialized experience object
     experience_bytes = Column(LargeBinary, nullable=True)
     consumed = Column(Integer, default=0, index=True)
@@ -50,11 +52,12 @@ class ExperienceModel(Base):  # type: ignore
     def from_experience(cls, experience: Experience):
         """Save the experience to database."""
         return cls(
-            experience_bytes=experience.serialize(),
-            reward=experience.reward,
             prompt=experience.prompt_text,
             response=experience.response_text,
             message_list=experience.messages,
+            reward=experience.reward,
+            model_version=experience.info["model_version"],
+            experience_bytes=experience.serialize(),
         )
 
 
