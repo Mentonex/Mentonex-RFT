@@ -844,7 +844,6 @@ class Config:
         """Update config if `node_num` or `gpu_per_node` are not set."""
         if self.cluster.node_num is not None and self.cluster.gpu_per_node is not None:
             return
-
         # init ray cluster to detect node_num and gpu_per_node
         was_initialized = ray.is_initialized()
         if not was_initialized:
@@ -991,7 +990,7 @@ class Config:
                 f"Auto set `buffer.trainer_input.experience_buffer.path` to {experience_buffer.path}"
             )
 
-        from trinity.algorithm.algorithm import ALGORITHM_TYPE
+        from trinity.algorithm import ALGORITHM_TYPE
 
         experience_buffer.schema_type = ALGORITHM_TYPE.get(self.algorithm.algorithm_type).schema
         experience_buffer.batch_size = self.buffer.train_batch_size
@@ -1103,12 +1102,12 @@ class Config:
     def _check_algorithm(self) -> None:
         from trinity.algorithm import (
             ADVANTAGE_FN,
+            ALGORITHM_TYPE,
             ENTROPY_LOSS_FN,
             KL_FN,
             POLICY_LOSS_FN,
             SAMPLE_STRATEGY,
         )
-        from trinity.algorithm.algorithm import ALGORITHM_TYPE
 
         algorithm = ALGORITHM_TYPE.get(self.algorithm.algorithm_type)
         algorithm.check_config(self)
