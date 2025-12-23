@@ -97,6 +97,7 @@ class SQLExperienceStorage(SQLStorage):
         super().__init__(config)
         self.max_timeout = config.max_read_timeout
         self.batch_size = config.batch_size
+        self.enable_replay = config.replay_buffer is not None and config.replay_buffer.enable
         # TODO: optimize the following logic
         if config.schema_type == "experience":
             # NOTE: consistent with the old version of experience buffer
@@ -161,6 +162,8 @@ class SQLExperienceStorage(SQLStorage):
                 query = session.query(self.table_model_cls)
                 if min_model_version > 0:
                     query = query.filter(self.table_model_cls.model_version >= min_model_version)
+                if not self.enable_replay:
+                    query = query.filter(self.table_model_cls.consumed == 0)
                 experiences = (
                     query.order_by(
                         asc(self.table_model_cls.consumed), desc(self.table_model_cls.id)

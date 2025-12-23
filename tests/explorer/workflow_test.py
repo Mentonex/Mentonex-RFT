@@ -555,7 +555,7 @@ class TestAgentScopeWorkflowAdapter(unittest.IsolatedAsyncioTestCase):
         try:
             from agentscope.model import TrinityChatModel
         except ImportError:
-            self.skipTest("agentscope >= 0.1.6 is not installed")
+            self.skipTest("agentscope >= 1.0.9 is not installed")
 
         async def as_workflow_func(task, model) -> float:
             self.assertIsInstance(task, dict)

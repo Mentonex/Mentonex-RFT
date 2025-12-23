@@ -144,6 +144,8 @@ def check_taskset_path(dataset_name: str, taskset_path: str) -> str:
             raise AttributeError(f"{script_filename} is missing 'DEFAULT_DATA_PATH'")
         taskset_path = module.DEFAULT_DATA_PATH
     taskset_path = os.path.realpath(taskset_path)
+    if os.path.exists(taskset_path):
+        return taskset_path
 
     # For frozenlake, check if train.parquet and test.parquet already exist
     if dataset_name == "frozenlake":
