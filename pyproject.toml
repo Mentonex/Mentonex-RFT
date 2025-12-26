@@ -43,6 +43,7 @@ dependencies = [
     "sortedcontainers",
     "word2number",
     "transformers",
+    "tinker",
 ]
 
 [project.scripts]
