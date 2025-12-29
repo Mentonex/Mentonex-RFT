@@ -29,7 +29,7 @@ buffer:
         response_key: 'answer'
       rollout_args:
         temperature: 1.0
-      default_workflow_type: 'as_react_workflow'
+      default_workflow_type: 'agentscope_react_workflow'
     eval_tasksets: []
   trainer_input:
     experience_buffer:
