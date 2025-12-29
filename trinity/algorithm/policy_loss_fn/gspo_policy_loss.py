@@ -30,6 +30,15 @@ class GSPOLossFn(PolicyLossFn):
         if _clip_range_high is None:
             raise ValueError("Either clip_range or clip_range_high must be specified.")
         self.clip_range_high = _clip_range_high
+
+        if loss_agg_mode != "seq-mean-token-mean":
+            from trinity.utils.log import get_logger
+
+            logger = get_logger(__name__)
+            logger.warning(
+                f"The original GSPO paper requires loss_agg_mode to be 'seq-mean-token-mean', but the current setting is '{loss_agg_mode}'."
+            )
+            # loss_agg_mode = "seq-mean-token-mean"
         self.loss_agg_mode = loss_agg_mode
 
     def __call__(  # type: ignore
