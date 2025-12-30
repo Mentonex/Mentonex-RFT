@@ -1,18 +1,22 @@
-# Trinity with Tinker Backend
+# Tinker Backend
 
-> [!NOTE]
-> This example demonstrates how to use Trinity with the [Tinker](https://thinkingmachines.ai/tinker/) backend, which enables model training on devices **without GPUs**.
+```{note}
+This example demonstrates how to use Trinity-RFT with the [Tinker](https://thinkingmachines.ai/tinker/) backend, which enables model training on devices **without GPUs**.
+```
 
 ## Setup Instructions
 
 ### 1. API Key Configuration
+
 Before starting Ray, you must set the `TRINITY_API_KEY` environment variable to your Tinker API key to enable proper access to Tinker's API:
 
 ```bash
 export TRINITY_API_KEY=your_tinker_api_key
+ray start --head
 ```
 
 ### 2. Configuration File
+
 Configure the Tinker backend in your YAML configuration file by setting the `model.tinker` parameters as shown below:
 
 ```yaml
@@ -27,7 +31,7 @@ model:
     train_unembed: true
 ```
 
-### 3. Configuration Parameters Explained
+#### Explanation of Configuration Parameters
 
 - **`tinker`**: Tinker-specific configuration section. **Important**: When Tinker is enabled, any LoRA configuration settings (`model.lora_configs`) will be ignored.
   - **`enable`**: Whether to activate the Tinker backend. Default: `false`
@@ -41,7 +45,7 @@ model:
 
 ## Usage
 
-Once configured, Trinity works with the Tinker backend just like it does with the standard veRL backend. Start training with:
+Once configured, Trinity-RFT works with the Tinker backend just like it does with the standard veRL backend. Start training with:
 
 ```bash
 trinity run --config tinker.yaml  # Replace with your actual config file path
@@ -56,11 +60,11 @@ trinity run --config tinker.yaml  # Replace with your actual config file path
     - RLOO (`algorithm.algorithm_type=rloo`)
     - On-policy distillation (`algorithm.algorithm_type=on_policy_distill`)
 
-    Algorithms like `grpo`, `opmd`, `sft` are supported and we will add support for more algorithms in the future.
+    Algorithms like `grpo`, `opmd`, `sft` are supported and we will support more algorithms in the future.
 
 3. **Multiple stages training** is not supported currently, we will add support for this in the future.
 
-> 💡 A complete example configuration file is available at [`tinker.yaml`](tinker.yaml).
+> 💡 A complete example configuration file is available at [`tinker.yaml`](https://github.com/modelscope/Trinity-RFT/blob/main/examples/tinker/tinker.yaml).
 
 
 ## Results on the Llama-3.2-3B Model

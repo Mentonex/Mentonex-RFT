@@ -1,19 +1,23 @@
-# Trinity with Tinker Backend
+# Tinker 后端
 
-> [!NOTE]
-> This example demonstrates how to use Trinity with the [Tinker](https://thinkingmachines.ai/tinker/) backend, which enables model training on devices **without GPUs**.
+```{note}
+本示例演示了如何在 Trinity-RFT 中使用 [Tinker](https://thinkingmachines.ai/tinker/)，从而在**无 GPU**的设备上进行模型训练。
+```
 
-## Setup Instructions
+## 安装与配置
 
-### 1. API Key Configuration
-Before starting Ray, you must set the `TRINITY_API_KEY` environment variable to your Tinker API key to enable proper access to Tinker's API:
+### 1. API Key 配置
+
+在启动 Ray 之前，必须将 `TRINITY_API_KEY` 环境变量设置为你的 Tinker API 密钥，以便正确访问 Tinker 的 API：
 
 ```bash
 export TRINITY_API_KEY=your_tinker_api_key
+ray start --head
 ```
 
-### 2. Configuration File
-Configure the Tinker backend in your YAML configuration file by setting the `model.tinker` parameters as shown below:
+### 2. 配置文件
+
+在 YAML 配置文件中通过如下方式设置 `model.tinker` 参数以启用 Tinker 后端：
 
 ```yaml
 model:
@@ -27,48 +31,47 @@ model:
     train_unembed: true
 ```
 
-### 3. Configuration Parameters Explained
+#### 配置参数说明
 
-- **`tinker`**: Tinker-specific configuration section. **Important**: When Tinker is enabled, any LoRA configuration settings (`model.lora_configs`) will be ignored.
-  - **`enable`**: Whether to activate the Tinker backend. Default: `false`
-  - **`base_model`**: Path to the base model for Tinker. If not specified (`null`), it defaults to the `model_path` defined elsewhere in your config
-  - **`rank`**: The LoRA rank that controls the size of the adaptation matrices. Default: `32`
-  - **`seed`**: Random seed for reproducible Tinker operations. If not specified (`null`), no specific seed is set
-  - **`train_mlp`**: Whether to train the MLP (feed-forward) layers. Default: `true`
-  - **`train_attn`**: Whether to train the attention layers. Default: `true`
-  - **`train_unembed`**: Whether to train the unembedding (output) layer. Default: `true`
+- **`tinker`**：Tinker 专用配置部分。**注意**：启用 Tinker 后，所有 LoRA 配置（`model.lora_configs`）将被忽略。
+  - **`enable`**：是否启用 Tinker 后端。默认值：`false`
+  - **`base_model`**：Tinker 的基础模型路径。如果未指定（`null`），则默认为配置中其他位置的 `model_path`
+  - **`rank`**：LoRA 的秩，控制适应矩阵的大小。默认值：`32`
+  - **`seed`**：Tinker 操作的随机种子。未指定（`null`）时不设定特定种子
+  - **`train_mlp`**：是否训练 MLP（前馈）层。默认值：`true`
+  - **`train_attn`**：是否训练注意力层。默认值：`true`
+  - **`train_unembed`**：是否训练输出（unembedding）层。默认值：`true`
 
 
-## Usage
+## 使用方法
 
-Once configured, Trinity works with the Tinker backend just like it does with the standard veRL backend. Start training with:
+配置完成后，Trinity-RFT 使用 Tinker 后端的方式与标准 veRL 后端一致。启动训练命令如下：
 
 ```bash
-trinity run --config tinker.yaml  # Replace with your actual config file path
+trinity run --config tinker.yaml  # 请替换为你的实际配置文件路径
 ```
 
-### Important Limitations of the Tinker Backend
+### Tinker 后端的功能限制
 
-1. **Entropy loss** is not consistent compared to veRL backends.
-2. **Algorithms requiring `compute_advantage_in_trainer=true` are NOT supported currently**, including:
-    - PPO (`algorithm.algorithm_type=ppo`)
-    - Reinforce++ (`algorithm.algorithm_type=reinforceplusplus`)
-    - RLOO (`algorithm.algorithm_type=rloo`)
-    - On-policy distillation (`algorithm.algorithm_type=on_policy_distill`)
+1. **熵损失（entropy loss）** 与 veRL 后端不完全一致。
+2. **不支持 `compute_advantage_in_trainer=true` 的算法**，包括：
+    - PPO（`algorithm.algorithm_type=ppo`）
+    - Reinforce++（`algorithm.algorithm_type=reinforceplusplus`）
+    - RLOO（`algorithm.algorithm_type=rloo`）
+    - On-policy distillation（`algorithm.algorithm_type=on_policy_distill`）
 
-    Algorithms like `grpo`, `opmd`, `sft` are supported and we will add support for more algorithms in the future.
+    目前支持 `grpo`, `opmd`, `sft` 等算法，未来会支持更多算法。
 
-3. **Multiple stages training** is not supported currently, we will add support for this in the future.
+3. **暂不支持多阶段训练**，后续会添加该功能。
 
-> 💡 A complete example configuration file is available at [`tinker.yaml`](tinker.yaml).
-
-
-## Results on the Llama-3.2-3B Model
-
-We trained the **Llama-3.2-3B** model on the **GSM8K** dataset using both the **Tinker** and **veRL** backends. Below are the full configuration files used in our experiments.
+> 💡 完整的示例配置文件见 [`tinker.yaml`](https://github.com/modelscope/Trinity-RFT/blob/main/examples/tinker/tinker.yaml)。
 
 
-<details><summary>Click to expand: Tinker Backend Configuration</summary>
+## Llama-3.2-3B 模型实验结果
+
+我们在 **GSM8K** 数据集上，分别使用 **Tinker** 和 **veRL** 后端对 **Llama-3.2-3B** 模型进行了训练。以下为实验中使用的完整配置文件。
+
+<details><summary>点击展开：Tinker 后端配置</summary>
 
 ```yaml
 mode: both
@@ -133,7 +136,7 @@ synchronizer:
 </details>
 
 
-<details><summary>Click to expand: veRL Backend Configuration (LoRA)</summary>
+<details><summary>点击展开：veRL 后端配置（LoRA）</summary>
 
 ```yaml
 mode: both
@@ -203,8 +206,8 @@ synchronizer:
 
 </details>
 
-### Observations
+### 结果说明
 
-Since Llama-3.2-3B is a base (non-instruct-tuned) model, it has limited ability to follow formatting instructions. Additionally, we trained for only **one epoch**. As a result, both backends achieved final rewards just slightly above 0.1. Nonetheless, the training curves show a clear upward trend in reward, indicating successful learning. The results are visualized below:
+由于 Llama-3.2-3B 是基础（非指令微调）模型，其格式化指令跟随能力有限，且本实验仅训练了**一个 epoch**。因此，两种后端的最终 reward 都略高于 0.1。但训练曲线显示 reward 呈明显上升趋势，表明模型已成功学习。结果可视化如下：
 
-![Training Rewards on GSM8K](../../docs/sphinx_doc/assets/tinker-gsm8k.png)
+![GSM8K 训练奖励曲线](../../docs/sphinx_doc/assets/tinker-gsm8k.png)
