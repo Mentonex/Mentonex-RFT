@@ -41,6 +41,7 @@ Trinity-RFT 面向不同背景和目标的用户提供相应功能：
 
 ## 🚀 新闻
 
+* [2025-12] Trinity-RFT 已支持 [tinker](https://thinkingmachines.ai/tinker/) 训练后端，可在**无 GPU 的设备**上进行模型训练。
 * [2025-12] Trinity-RFT 助力淘宝闪购医药健康业务，让 AI 智能体能够理解模糊症状、主动询问后续问题，并提供精准推荐（[新闻](https://tech.china.com.cn/sx/20251201/411376.shtml)）。
 * [2025-11] [[发布说明](https://github.com/modelscope/Trinity-RFT/releases/tag/v0.3.3)] Trinity-RFT v0.3.3 发布：修复若干 Bug。
 * [2025-11] 推出 [Learn-to-Ask](https://github.com/modelscope/Trinity-RFT/tree/main/examples/learn_to_ask)：利用离线专家数据，训练具备主动问询能力的对话智能体（[论文](https://arxiv.org/pdf/2510.25441)）.
@@ -154,6 +155,10 @@ Trinity-RFT 面向不同背景和目标的用户提供相应功能：
 
 > [!NOTE]
 > 本项目正处于活跃开发阶段。欢迎提出意见和建议！
+>
+> **没有 GPU？没问题！** 您仍然可以尝试使用：
+> 1. 按照安装步骤进行操作（可跳过 `flash-attn` 等 GPU 专用的软件包）
+> 2. 运行 **[Tinker 训练示例](https://github.com/modelscope/Trinity-RFT/tree/main/examples/tinker)**，该示例专为仅使用 CPU 的系统设计。
 
 
 ### 第一步：安装
@@ -185,10 +190,15 @@ cd Trinity-RFT
 conda create -n trinity python=3.12
 conda activate trinity
 
-pip install -e ".[dev]"
-pip install -e ".[flash_attn]"
+pip install -e ".[vllm,flash_attn]"
+
+# 如果没有GPU，可以注释上一行的命令，改为使用Tinker：
+# pip install -e ".[tinker]"
+
 # 如果安装 flash-attn 时遇到问题，可尝试：
 # pip install flash-attn==2.8.1 --no-build-isolation
+
+pip install -e ".[dev]"  # 用于调试和开发
 ```
 
 #### 使用 venv
@@ -197,10 +207,15 @@ pip install -e ".[flash_attn]"
 python3.10 -m venv .venv
 source .venv/bin/activate
 
-pip install -e ".[dev]"
-pip install -e ".[flash_attn]"
+pip install -e ".[vllm,flash_attn]"
+
+# 如果没有GPU，可以注释上一行的命令，改为使用Tinker：
+# pip install -e ".[tinker]"
+
 # 如果安装 flash-attn 时遇到问题，可尝试：
 # pip install flash-attn==2.8.1 --no-build-isolation
+
+pip install -e ".[dev]"  # 用于调试和开发
 ```
 
 #### 使用 `uv`
@@ -208,7 +223,10 @@ pip install -e ".[flash_attn]"
 [`uv`](https://github.com/astral-sh/uv) 是现代的 Python 包管理工具。
 
 ```bash
-uv sync --extra dev --extra flash_attn
+uv sync --extra vllm --extra dev --extra flash_attn
+
+# 如果没有GPU，可以改为使用Tinker：
+# uv sync --extra tinker --extra dev
 ```
 
 ## 通过 PyPI 安装

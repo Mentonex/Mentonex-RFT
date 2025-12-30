@@ -23,7 +23,6 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "verl==0.5.0",
     "ray[default]>=2.50.0",
-    "vllm>=0.10.2,<=0.11.0",
     "tensordict",
     "wandb",
     "omegaconf",
@@ -43,13 +42,16 @@ dependencies = [
     "sortedcontainers",
     "word2number",
     "transformers",
-    "tinker",
+    "datasets",
 ]
 
 [project.scripts]
 trinity = "trinity.cli.launcher:main"
 
 [project.optional-dependencies]
+vllm = [
+    "vllm>=0.10.2,<=0.11.0",
+]
 data = [
     "py-data-juicer>=1.4.3"
 ]
@@ -78,6 +80,9 @@ megatron = [
     # reinstall it with --no-build-isolation and `--no-cache-dir` flag
     "transformer_engine[pytorch]==2.8.0",
     "mbridge>=0.13.0",
+]
+tinker = [
+    "tinker",  # tinker requires python>=3.11
 ]
 
 doc = [

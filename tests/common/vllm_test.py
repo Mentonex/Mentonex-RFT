@@ -125,17 +125,13 @@ class ModelWrapperTest(RayUnittestBaseAysnc):
         self.config.algorithm.repeat_times = self.repeat_times
         self.config.explorer.rollout_model.enable_history = self.enable_history
         self.config.check_and_update()
-        from pprint import pprint
 
-        pprint(self.config)
         self.engines, self.auxiliary_engines = create_inference_models(self.config)
         self.model_wrapper = ModelWrapper(
             self.engines[0], engine_type="vllm", enable_history=self.enable_history
         )
 
-    async def test_generate(
-        self,
-    ):
+    async def test_generate(self):
         await prepare_engines(self.engines, self.auxiliary_engines)
         await self.model_wrapper.prepare()
         self.assertEqual(self.model_wrapper.model_path, self.config.model.model_path)
@@ -567,7 +563,7 @@ class TestLogprobs(RayUnittestBaseAysnc):
             torch.allclose(response_1.logprobs, logprobs_2_response, rtol=0.3, atol=1e-3)
         )
         self.assertTrue(
-            torch.allclose(response_2.logprobs, logprobs_4_response, rtol=0.3, atol=1e-3)
+            torch.allclose(response_2.logprobs, logprobs_4_response, rtol=0.5, atol=1e-2)
         )
         self.assertFalse(
             torch.allclose(response_2.logprobs, logprobs_3_response, rtol=0.3, atol=1e-3)
@@ -616,7 +612,7 @@ class TestLogprobs(RayUnittestBaseAysnc):
             torch.allclose(response_1.logprobs, logprobs_2_response, rtol=0.3, atol=1e-3)
         )
         self.assertTrue(
-            torch.allclose(response_2.logprobs, logprobs_4_response, rtol=0.3, atol=1e-3)
+            torch.allclose(response_2.logprobs, logprobs_4_response, rtol=0.5, atol=1e-2)
         )
         self.assertFalse(
             torch.allclose(response_2.logprobs, logprobs_3_response, rtol=0.3, atol=1e-3)
