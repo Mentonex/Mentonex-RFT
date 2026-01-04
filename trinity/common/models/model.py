@@ -70,6 +70,10 @@ class InferenceModel(ABC):
         """Get the model path"""
         return None
 
+    def get_model_name(self) -> Optional[str]:
+        """Get the name of the model."""
+        return None
+
 
 def _history_recorder(func):
     """Decorator to record history of the model calls."""
@@ -113,6 +117,7 @@ class ModelWrapper:
             engine_type.startswith("vllm") or engine_type == "tinker"
         ), "Only vLLM and tinker model is supported for now."
         self.model = model
+        self._model_name = None
         self.api_address: str = None
         self.openai_client: openai.OpenAI = None
         self.openai_async_client: openai.AsyncOpenAI = None
@@ -128,6 +133,7 @@ class ModelWrapper:
 
     async def prepare(self) -> None:
         """Prepare the model wrapper."""
+        self._model_name = await self.model.get_model_name.remote()
         self.api_address = await self.model.get_api_server_url.remote()
         if self.api_address is None:
             self.logger.info("API server is not enabled for inference model.")
@@ -284,6 +290,16 @@ class ModelWrapper:
     async def model_path_async(self) -> str:
         """Get the model path."""
         return await self.model.get_model_path.remote()
+
+    @property
+    def model_name(self) -> Optional[str]:
+        """Get the name of the model."""
+        return self._model_name
+
+    @property
+    async def model_name_async(self) -> Optional[str]:
+        """Get the name of the model."""
+        return self._model_name
 
     def get_lora_request(self) -> Any:
         if self.enable_lora:
