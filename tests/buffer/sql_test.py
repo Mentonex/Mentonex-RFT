@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 
 import ray
 import torch
@@ -40,7 +41,11 @@ class TestSQLBuffer(RayUnittestBaseAsync):
         )
         if enable_replay:
             config.replay_buffer = ReplayBufferConfig(enable=True)
-        sql_writer = SQLWriter(config.to_storage_config())
+        writer_config = deepcopy(config)
+        writer_config.batch_size = put_batch_size
+        # Create buffer by writer, so buffer.batch_size will be set to put_batch_size
+        # This will check whether read_batch_size tasks effect
+        sql_writer = SQLWriter(writer_config.to_storage_config())
         sql_reader = SQLReader(config.to_storage_config())
         exps = [
             Experience(
