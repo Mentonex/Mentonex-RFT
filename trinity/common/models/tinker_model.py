@@ -11,7 +11,6 @@ from trinity.common.experience import Experience
 from trinity.common.models.model import InferenceModel
 from trinity.common.models.utils import get_action_mask_method
 from trinity.manager.synchronizer import Synchronizer
-from trinity.utils.log import get_logger
 
 
 class TinkerModel(InferenceModel):
@@ -19,10 +18,9 @@ class TinkerModel(InferenceModel):
         self,
         config: InferenceModelConfig,
     ) -> None:
-        self.config = config
+        super().__init__(config)
         self.model_version = -1
         self.synchronizer = Synchronizer.get_actor(namespace=ray.get_runtime_context().namespace)
-        self.logger = get_logger(__name__)
         self.model = None
         self.tokenizer = None
         self.chat_template = None
@@ -199,7 +197,3 @@ class TinkerModel(InferenceModel):
         """Get the API server URL if available."""
         # TODO: tinker will support openai api later
         return None
-
-    def get_model_path(self) -> Optional[str]:
-        """Get the model path"""
-        return self.config.model_path  # type: ignore [return-value]

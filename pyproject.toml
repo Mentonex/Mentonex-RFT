@@ -82,7 +82,7 @@ megatron = [
     "mbridge>=0.13.0",
 ]
 tinker = [
-    "tinker",  # tinker requires python>=3.11
+    "tinker; python_version >= '3.11'",
 ]
 
 doc = [

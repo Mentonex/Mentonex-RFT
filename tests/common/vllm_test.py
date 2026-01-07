@@ -135,7 +135,6 @@ class ModelWrapperTest(RayUnittestBaseAsync):
         await prepare_engines(self.engines, self.auxiliary_engines)
         await self.model_wrapper.prepare()
         self.assertEqual(self.model_wrapper.model_path, self.config.model.model_path)
-        self.assertEqual(await self.model_wrapper.model_path_async, self.config.model.model_path)
         prompts = ["Hello, world!", "Hello, my name is"]
         n = self.config.algorithm.repeat_times
         if self.use_async:

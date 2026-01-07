@@ -472,7 +472,7 @@ class Explorer:
             ray.remote(ExperiencePipeline)
             .options(
                 name=f"{self.config.explorer.name}_pipeline",
-                namespace=ray.get_runtime_context().namespace,
+                namespace=self.config.ray_namespace,
                 scheduling_strategy=NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,
@@ -531,7 +531,7 @@ class Explorer:
             ray.remote(cls)
             .options(
                 name=config.explorer.name,
-                namespace=ray.get_runtime_context().namespace,
+                namespace=config.ray_namespace,
             )
             .remote(config)
         )

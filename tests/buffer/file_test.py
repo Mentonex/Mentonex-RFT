@@ -109,7 +109,11 @@ class TestFileBuffer(unittest.IsolatedAsyncioTestCase):
             name="test_buffer", storage_type=StorageType.FILE.value
         )
         self.config.check_and_update()
-        ray.init(ignore_reinit_error=True, runtime_env={"env_vars": self.config.get_envs()})
+        ray.init(
+            ignore_reinit_error=True,
+            runtime_env={"env_vars": self.config.get_envs()},
+            namespace="trinity_unittest",
+        )
         os.makedirs(self.config.buffer.cache_dir, exist_ok=True)
         file_path = self.config.buffer.trainer_input.experience_buffer.path
         if os.path.exists(file_path):

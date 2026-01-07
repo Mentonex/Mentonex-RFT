@@ -221,7 +221,7 @@ class Trainer:
         """Get a Ray actor for the trainer."""
         return (
             ray.remote(cls)
-            .options(name=config.trainer.name, namespace=ray.get_runtime_context().namespace)
+            .options(name=config.trainer.name, namespace=config.ray_namespace)
             .remote(config)
         )
 

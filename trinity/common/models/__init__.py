@@ -58,7 +58,7 @@ def create_inference_models(
         from trinity.common.models.tinker_model import TinkerModel
 
         engine_cls = TinkerModel
-        namespace = ray.get_runtime_context().namespace
+        namespace = config.ray_namespace
         rollout_engines = [
             ray.remote(engine_cls)
             .options(
@@ -111,7 +111,8 @@ def create_inference_models(
     for bundle_id, node_id in bundle_node_map.items():
         node_bundle_map[node_id].append(bundle_id)
     allocator = _BundleAllocator(node_bundle_map)
-    namespace = ray.get_runtime_context().namespace
+    namespace = config.ray_namespace
+    config.explorer.rollout_model.ray_namespace = namespace
     # create rollout models
     # in 'serve' mode, we always enable openai api for rollout model
     if config.mode == "serve":
@@ -147,6 +148,7 @@ def create_inference_models(
     # create auxiliary models
     for i, model_config in enumerate(config.explorer.auxiliary_models):
         engines = []
+        model_config.ray_namespace = namespace
         for j in range(model_config.engine_num):
             bundles_for_engine = allocator.allocate(model_config.tensor_parallel_size)
             model_config.enable_openai_api = True

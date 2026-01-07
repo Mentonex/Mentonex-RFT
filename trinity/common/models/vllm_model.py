@@ -6,7 +6,6 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-import ray
 import torch
 from packaging.version import parse as parse_version
 from PIL import Image
@@ -21,7 +20,6 @@ from trinity.common.models.mm_utils import (
 from trinity.common.models.model import InferenceModel
 from trinity.common.models.utils import get_action_mask_method
 from trinity.common.models.vllm_patch import get_vllm_version
-from trinity.utils.log import get_logger
 
 
 # V0 engine is deprecated since vLLM v0.10.2, related code will be removed in the future.
@@ -36,12 +34,12 @@ class vLLMRolloutModel(InferenceModel):
         self,
         config: InferenceModelConfig,
     ) -> None:
+        super().__init__(config)
+
         import vllm
         from vllm.sampling_params import RequestOutputKind
 
-        self.logger = get_logger(__name__)
         self.vllm_version = get_vllm_version()
-        self.config = config
         self.use_v1 = config.use_v1
         if config.tensor_parallel_size != 1:
             os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
@@ -80,6 +78,7 @@ class vLLMRolloutModel(InferenceModel):
             ignore_eos=config.ignore_eos,
         )
         self.enable_thinking = config.enable_thinking
+        self.ray_namespace = config.ray_namespace
         self.request_id = 0
         max_model_len = config.max_model_len
         self.enable_lora = config.enable_lora
@@ -638,7 +637,7 @@ class vLLMRolloutModel(InferenceModel):
                 timeout,
                 state_dict_meta,
                 explorer_name,
-                ray.get_runtime_context().namespace,
+                self.ray_namespace,
             ),
         )
 
@@ -714,12 +713,6 @@ class vLLMRolloutModel(InferenceModel):
 
     def get_model_version(self) -> int:
         return self.model_version
-
-    def get_model_path(self) -> str:
-        return self.config.model_path  # type: ignore [return-value]
-
-    def get_model_name(self) -> Optional[str]:
-        return self.config.name  # type: ignore [return-value]
 
     def get_lora_request(self, lora_path: Optional[str] = None) -> Any:
         from vllm.lora.request import LoRARequest

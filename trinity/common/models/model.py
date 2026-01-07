@@ -13,6 +13,7 @@ import torch
 from PIL import Image
 from torch import Tensor
 
+from trinity.common.config import InferenceModelConfig
 from trinity.common.constants import RunningStatus
 from trinity.common.experience import Experience
 from trinity.utils.log import get_logger
@@ -20,6 +21,10 @@ from trinity.utils.log import get_logger
 
 class InferenceModel(ABC):
     """A model for high performance for rollout inference."""
+
+    def __init__(self, config: InferenceModelConfig) -> None:
+        self.config = config
+        self.logger = get_logger(__name__)
 
     async def generate(self, prompt: str, **kwargs) -> Sequence[Experience]:
         """Generate a responses from a prompt in async."""
@@ -66,13 +71,9 @@ class InferenceModel(ABC):
         """Get the API server URL if available."""
         return None
 
-    def get_model_path(self) -> Optional[str]:
-        """Get the model path"""
-        return None
-
-    def get_model_name(self) -> Optional[str]:
-        """Get the name of the model."""
-        return None
+    def get_model_config(self) -> InferenceModelConfig:
+        """Get the model configuration."""
+        return self.config
 
 
 def _history_recorder(func):
@@ -117,7 +118,9 @@ class ModelWrapper:
             engine_type.startswith("vllm") or engine_type == "tinker"
         ), "Only vLLM and tinker model is supported for now."
         self.model = model
-        self._model_name = None
+        self.config: InferenceModelConfig = None  # init during prepare
+        self._model_name: str = None
+        self._model_path: str = None
         self.api_address: str = None
         self.openai_client: openai.OpenAI = None
         self.openai_async_client: openai.AsyncOpenAI = None
@@ -133,7 +136,18 @@ class ModelWrapper:
 
     async def prepare(self) -> None:
         """Prepare the model wrapper."""
-        self._model_name = await self.model.get_model_name.remote()
+        self.config = await self.model.get_model_config.remote()
+        self._model_name = self.config.name
+        self._model_path = self.config.model_path
+        self._generate_kwargs = {
+            "temperature": self.config.temperature,
+            "top_p": self.config.top_p,
+            "max_tokens": self.config.max_response_tokens,
+        }
+        if self.config.enable_thinking is not None:
+            self._generate_kwargs["extra_body"] = {
+                "chat_template_kwargs": {"enable_thinking": self.config.enable_thinking}
+            }
         self.api_address = await self.model.get_api_server_url.remote()
         if self.api_address is None:
             self.logger.info("API server is not enabled for inference model.")
@@ -284,12 +298,7 @@ class ModelWrapper:
     @property
     def model_path(self) -> str:
         """Get the model path."""
-        return ray.get(self.model.get_model_path.remote())
-
-    @property
-    async def model_path_async(self) -> str:
-        """Get the model path."""
-        return await self.model.get_model_path.remote()
+        return self._model_path
 
     @property
     def model_name(self) -> Optional[str]:
@@ -297,9 +306,9 @@ class ModelWrapper:
         return self._model_name
 
     @property
-    async def model_name_async(self) -> Optional[str]:
-        """Get the name of the model."""
-        return self._model_name
+    def generate_kwargs(self) -> Dict[str, Any]:
+        """Get the generation kwargs for openai client."""
+        return self._generate_kwargs
 
     def get_lora_request(self) -> Any:
         if self.enable_lora:

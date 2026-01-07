@@ -171,6 +171,11 @@ class DummyWorkflowWithState(Workflow):
 
 @ray.remote
 class DummyModel(InferenceModel):
+    def __init__(self):
+        from trinity.common.config import InferenceModelConfig
+
+        super().__init__(InferenceModelConfig(model_path="dummy_model"))
+
     def sync_model(self, model_version, update_weight_args_list):
         return True
 

@@ -88,7 +88,7 @@ class RunnerWrapper:
         self.config = config
         self.retry_times = config.explorer.max_retry_times
         self.timeout = config.explorer.max_timeout
-        self.namespace = ray.get_runtime_context().namespace
+        self.namespace = config.ray_namespace
         self.runner = self._create_runner()
         self.state = {}
 

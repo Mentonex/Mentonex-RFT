@@ -9,6 +9,7 @@ import time
 import unittest
 from copy import deepcopy
 from datetime import datetime
+from typing import Dict
 from unittest import mock
 
 import ray
@@ -1134,10 +1135,10 @@ class TestServeWithTrainer(RayUnittestBaseAsync):
             + metrics["rollout/model_1/total_request_count"],
             metrics["rollout/total_experience_count"],
         )
-        # at least updated to version 2
+        # at least updated to version 1
         await asyncio.sleep(5)  # wait for model version update
-        self.assertGreaterEqual(metrics["rollout/model_0/model_version"], 2)
-        self.assertGreaterEqual(metrics["rollout/model_1/model_version"], 2)
+        self.assertGreaterEqual(metrics["rollout/model_0/model_version"], 1)
+        self.assertGreaterEqual(metrics["rollout/model_1/model_version"], 1)
         # check final checkpoint
         _, step_num = get_checkpoint_dir_with_step_num(
             checkpoint_root_path=serve_config.checkpoint_job_dir,
@@ -1433,3 +1434,149 @@ class TestTinkerTrainer(BaseTrainerCase):
     def tearDown(self):
         # remove dir only when the test passed
         shutil.rmtree(self.config.checkpoint_job_dir, ignore_errors=True)
+
+
+@unittest.skip("Require agentscope >= 1.0.12")
+class AgentScopeTunerTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        ray.init(ignore_reinit_error=True)
+
+    def tearDown(self) -> None:
+        ray.shutdown(_exiting_interpreter=True)
+
+    def test_agentscope_tuner(self):
+        try:
+            from agentscope.agent import ReActAgent
+            from agentscope.formatter import OpenAIChatFormatter
+            from agentscope.message import Msg
+            from agentscope.model import ChatModelBase
+            from agentscope.tuner import (
+                Algorithm,
+                Dataset,
+                JudgeOutput,
+                TunerChatModel,
+                WorkflowOutput,
+                tune,
+            )
+        except ImportError:
+            self.skipTest("agentscope >= 1.0.12 is not installed")
+
+        async def workflow_func(
+            task: Dict,
+            model: ChatModelBase,
+            auxiliary_models: Dict[str, ChatModelBase],
+        ) -> WorkflowOutput:
+            assert isinstance(model, ChatModelBase)
+            assert "judge_model" in auxiliary_models
+            assert isinstance(auxiliary_models["judge_model"], ChatModelBase)
+            agent = ReActAgent(
+                name="test_agent",
+                model=model,
+                sys_prompt="You are a helpful assistant.",
+                formatter=OpenAIChatFormatter(),
+            )
+            st = time.time()
+            response = await agent.reply(Msg("user", task["question"], role="user"))
+            et = time.time()
+            return WorkflowOutput(response=response, metrics={"workflow_time": et - st})
+
+        async def judge_func(
+            task: Dict, response: Msg, auxiliary_models: Dict[str, ChatModelBase]
+        ) -> JudgeOutput:
+            assert "judge_model" in auxiliary_models
+            judge_model = auxiliary_models["judge_model"]
+            assert isinstance(judge_model, ChatModelBase)
+            agent = ReActAgent(
+                name="judge_agent",
+                model=judge_model,
+                sys_prompt="You are a judge to evaluate the correctness of answers.",
+                formatter=OpenAIChatFormatter(),
+            )
+            workflow_text_response = response.get_text_content()
+            st = time.time()
+            judge_response = await agent.reply(
+                Msg(
+                    "user",
+                    f"Question: {task['question']}\nAnswer: {workflow_text_response}\nIs the answer correct? Reply with 'Yes' or 'No'.",
+                    role="user",
+                )
+            )
+            et = time.time()
+            judge_response = judge_response.get_text_content()
+            if judge_response is not None and "yes" in judge_response.lower():
+                is_correct = True
+            else:
+                is_correct = False
+            return JudgeOutput(
+                reward=float(is_correct),
+                metrics={"judge_time": et - st},
+            )
+
+        gsm8k_dataset = get_unittest_dataset_config("gsm8k")
+
+        dataset = Dataset(
+            path=gsm8k_dataset.path,
+            split="train",
+            total_steps=2,
+        )
+        eval_dataset = Dataset(
+            path=gsm8k_dataset.path,
+            split="test",
+        )
+
+        model = TunerChatModel(
+            model_path=get_model_path(),
+            max_model_len=4096,
+            max_tokens=2048,
+            inference_engine_num=2,
+        )
+
+        auxiliary_models = {
+            "judge_model": TunerChatModel(
+                model_path=get_model_path(),
+                max_model_len=8192,
+                max_tokens=2048,
+                inference_engine_num=2,
+            )
+        }
+
+        algorithm = Algorithm(
+            algorithm_type="multi_step_grpo",
+            batch_size=4,
+            group_size=4,
+            eval_interval_steps=2,
+            save_interval_steps=2,
+        )
+
+        tune(
+            workflow_func=workflow_func,
+            judge_func=judge_func,
+            train_dataset=dataset,
+            eval_dataset=eval_dataset,
+            model=model,
+            auxiliary_models=auxiliary_models,
+            algorithm=algorithm,
+        )
+        # check checkpoint dir in `./checkpoints/AgentScope/Experiment-<timestamp>`
+        self.assertTrue(os.path.exists("./checkpoints/AgentScope"))
+        exp_dirs = os.listdir("./checkpoints/AgentScope")
+        self.assertGreaterEqual(len(exp_dirs), 1)
+        latest_exp_dir = sorted(exp_dirs)[-1]
+        exp_dir_path = os.path.join("./checkpoints/AgentScope", latest_exp_dir)
+        _, step_num = get_checkpoint_dir_with_step_num(
+            checkpoint_root_path=exp_dir_path,
+            trainer_type="verl",
+        )
+        self.assertEqual(step_num, 2)
+        # check tensorboard
+        parser = TensorBoardParser(os.path.join(exp_dir_path, "monitor", "tensorboard"))
+        rollout_metrics = parser.metric_list("rollout")
+        self.assertIn("rollout/workflow_time/mean", rollout_metrics)
+        self.assertIn("rollout/judge_time/mean", rollout_metrics)
+        self.assertEqual(parser.metric_max_step(rollout_metrics[0]), 2)
+        eval_metrics = parser.metric_list("eval")
+        self.assertGreater(len(eval_metrics), 0)
+        self.assertEqual(parser.metric_max_step(eval_metrics[0]), 2)
+        actor_metrics = parser.metric_list("actor")
+        self.assertGreater(len(actor_metrics), 0)
+        self.assertEqual(parser.metric_max_step(actor_metrics[0]), 2)

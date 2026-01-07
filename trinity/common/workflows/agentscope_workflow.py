@@ -1,12 +1,18 @@
+import inspect
 from typing import Awaitable, Callable, Dict, List, Optional
 
 from trinity.common.experience import Experience
 from trinity.common.models.model import ModelWrapper
 from trinity.common.workflows.workflow import Task, Workflow
+from trinity.utils.annotations import Deprecated
 
 
+@Deprecated
 class AgentScopeWorkflowAdapter(Workflow):
-    """Adapter to wrap a agentscope trainable workflow function into a Trinity Workflow."""
+    """Adapter to wrap a agentscope trainable workflow function into a Trinity Workflow.
+    Only for agentscope versions between 1.0.7 and 1.0.11.
+    For agentscope >= 1.0.12, please use AgentScopeWorkflowAdapterV1.
+    """
 
     is_async: bool = True
 
@@ -75,7 +81,9 @@ class AgentScopeWorkflowAdapter(Workflow):
 
 
 class AgentScopeWorkflowAdapterV1(Workflow):
-    """A more general adapter to wrap agentscope trainable workflow and judge functions into a Trinity Workflow."""
+    """A more general adapter to wrap agentscope trainable workflow and judge functions into a Trinity Workflow.
+    Only for agentscope versions >= 1.0.12.
+    """
 
     is_async: bool = True
 
@@ -88,11 +96,11 @@ class AgentScopeWorkflowAdapterV1(Workflow):
     ):
         """Initialize the adapter with the task and model."""
         try:
-            from agentscope.model import TrinityChatModel
+            from agentscope.model import OpenAIChatModel
         except ImportError:
             raise ImportError(
-                "This workflow requires agentscope >= 1.0.11, please install "
-                "it via `pip install agentscope>=1.0.11`",
+                "This workflow requires agentscope >= 1.0.12, please install "
+                "it via `pip install agentscope>=1.0.12`",
             )
 
         super().__init__(
@@ -102,14 +110,17 @@ class AgentScopeWorkflowAdapterV1(Workflow):
         )
         self.workflow_func = task.workflow_args.get("workflow_func", None)
         self.judge_func = task.workflow_args.get("judge_func", None)
+        self._openai_client = self.model.get_openai_async_client()
 
         if self.workflow_func is None:
             raise ValueError(
                 "The 'workflow_func' is not provided.",
             )
 
-        self.chat_model: TrinityChatModel = TrinityChatModel(
-            model.get_openai_async_client(),
+        self.chat_model: OpenAIChatModel = OpenAIChatModel(
+            api_key="EMPTY",
+            model_name=self._openai_client.model_path,
+            stream=False,
             generate_kwargs={
                 "temperature": self.task.rollout_args.temperature,
                 "top_p": self.task.rollout_args.top_p,
@@ -118,18 +129,22 @@ class AgentScopeWorkflowAdapterV1(Workflow):
                 "top_logprobs": self.task.rollout_args.logprobs,
             },
         )
-
-        # TODO: customize generate_kwargs for auxiliary models if needed
-        if self.auxiliary_model_wrappers is not None and self.auxiliary_models is not None:
-            self.auxiliary_chat_models = {
-                aux_model_wrapper.model_name
-                or f"auxiliary_model_{i}": TrinityChatModel(openai_async_client=aux_model)
-                for i, (aux_model_wrapper, aux_model) in enumerate(
-                    zip(self.auxiliary_model_wrappers, self.auxiliary_models)
+        self.chat_model.client = self._openai_client
+        self.auxiliary_chat_models: Dict[str, OpenAIChatModel] = {}
+        if self.auxiliary_model_wrappers is not None:
+            for aux_model_wrapper in self.auxiliary_model_wrappers:
+                aux_model_client = aux_model_wrapper.get_openai_async_client()
+                aux_chat_model = OpenAIChatModel(
+                    api_key="EMPTY",
+                    model_name=aux_model_client.model_path,
+                    generate_kwargs=aux_model_wrapper.generate_kwargs,
+                    stream=False,
                 )
-            }
-        else:
-            self.auxiliary_chat_models = {}
+                aux_chat_model.client = aux_model_client
+                assert (
+                    aux_model_wrapper.model_name is not None
+                ), "Auxiliary model must have a name. This should not happen."
+                self.auxiliary_chat_models[aux_model_wrapper.model_name] = aux_chat_model
 
     def construct_experiences(
         self,
@@ -159,21 +174,44 @@ class AgentScopeWorkflowAdapterV1(Workflow):
             from agentscope.tuner import JudgeOutput, WorkflowOutput
         except ImportError:
             raise ImportError(
-                "Fail to import agentscope tuner related types. Please ensure agentscope>=1.0.11 is installed."
+                "Fail to import agentscope tuner related types. Please ensure agentscope>=1.0.12 is installed."
             )
 
         metrics = {}
-        workflow_output: WorkflowOutput = await self.workflow_func(
-            self.task.raw_task, self.chat_model, self.auxiliary_chat_models
-        )  # type: ignore [arg-type]
+        workflow_sig = inspect.signature(self.workflow_func)
+        if "auxiliary_models" in workflow_sig.parameters:
+            workflow_output = await self.workflow_func(
+                task=self.task.raw_task,
+                model=self.chat_model,
+                auxiliary_models=self.auxiliary_chat_models,
+            )
+        else:
+            workflow_output = await self.workflow_func(
+                task=self.task.raw_task,
+                model=self.chat_model,
+            )
+        if not isinstance(workflow_output, WorkflowOutput):
+            raise ValueError(
+                "The 'workflow_func' must return a WorkflowOutput object.",
+            )
         metrics.update(workflow_output.metrics or {})
         if self.judge_func is not None:
-            assert (
-                workflow_output.response is not None
-            ), "Workflow must provide response for judging."
-            judge_output: JudgeOutput = await self.judge_func(
-                self.task.raw_task, workflow_output.response, self.auxiliary_chat_models
-            )  # type: ignore [arg-type]
+            judge_sig = inspect.signature(self.judge_func)
+            if "auxiliary_models" in judge_sig.parameters:
+                judge_output = await self.judge_func(
+                    task=self.task.raw_task,
+                    response=workflow_output.response,
+                    auxiliary_models=self.auxiliary_chat_models,
+                )
+            else:
+                judge_output = await self.judge_func(
+                    task=self.task.raw_task,
+                    response=workflow_output.response,
+                )
+            if not isinstance(judge_output, JudgeOutput):
+                raise ValueError(
+                    "The 'judge_func' must return a JudgeOutput object.",
+                )
             reward = judge_output.reward
             metrics.update(judge_output.metrics or {})
         else:

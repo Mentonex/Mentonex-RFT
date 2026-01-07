@@ -7,7 +7,8 @@
 #
 # Note:
 # 1. This Dockerfile uses 'uv' to create a virtual environment for better package management. If you want a simpler setup without 'uv', please refer to `scripts/docker/Dockerfile`.
-# 2. Make sure to use `uv pip` to install packages within the virtual environment.
+# 2. The uv virtual environment is created at `/opt/venv`, use `source /opt/venv/bin/activate` to activate it.
+# 3. Make sure to use `uv pip` to install packages within the virtual environment.
 
 FROM nvcr.io/nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
 

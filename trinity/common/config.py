@@ -261,6 +261,8 @@ class TasksetConfig:
     total_epochs: int = 1  # automatically set
     # ! DO NOT SET, automatically set from buffer.total_steps
     total_steps: Optional[int] = None  # automatically set
+    # ! DO NOT SET, automatically set form ray_namespace
+    ray_namespace: Optional[str] = None
 
     def to_storage_config(self) -> StorageConfig:
         storage_config = StorageConfig(
@@ -285,6 +287,7 @@ class TasksetConfig:
             batch_size=self.batch_size,
             total_epochs=self.total_epochs,
             total_steps=self.total_steps,
+            ray_namespace=self.ray_namespace,
         )
         return storage_config
 
@@ -324,6 +327,8 @@ class ExperienceBufferConfig:
     total_epochs: int = 1  # automatically set
     # ! DO NOT SET, automatically set from buffer.total_steps
     total_steps: Optional[int] = None  # automatically set
+    # ! DO NOT SET, automatically set form ray_namespace
+    ray_namespace: Optional[str] = None
 
     def to_storage_config(self) -> StorageConfig:
         storage_config = StorageConfig(
@@ -345,6 +350,7 @@ class ExperienceBufferConfig:
             tokenizer_path=self.tokenizer_path,
             total_epochs=self.total_epochs,
             total_steps=self.total_steps,
+            ray_namespace=self.ray_namespace,
         )
         return storage_config
 
@@ -546,6 +552,7 @@ class InferenceModelConfig:
 
     # ! DO NOT SET
     bundle_indices: str = ""
+    ray_namespace: Optional[str] = None
 
     # ! DO NOT SET, automatically set from model.lora_configs
     enable_lora: bool = False
