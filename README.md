@@ -181,9 +181,28 @@ git clone https://github.com/modelscope/Trinity-RFT
 cd Trinity-RFT
 ```
 
-##### 2. Set Up a Virtual Environment
+##### 2. Set Up Environment
 
 Choose one of the following options:
+
+##### Using Pre-built Docker Image (Recommended for Beginners)
+
+We provide a pre-built Docker image with GPU-related dependencies installed.
+
+```bash
+docker pull ghcr.io/modelscope/trinity-rft:latest
+
+# Run the container, replacing <path_to_your_data_and_checkpoints> with your actual path
+docker run -it \
+  --gpus all \
+  --shm-size="64g" \
+  --rm \
+  -v $PWD:/workspace \
+  -v <path_to_your_data_and_checkpoints>:/data \
+  ghcr.io/modelscope/trinity-rft:latest
+```
+
+> This image has used `uv` to install all GPU-related dependencies of Trinity-RFT. The virtual environment will be automatically activated upon entering the container (you can also manually activate it via `source /opt/venv/bin/activate` if needed). You can use `uv pip install` to add extra packages as necessary.
 
 ###### Using Conda
 
@@ -230,7 +249,6 @@ uv sync --extra vllm --extra dev --extra flash_attn
 # uv sync --extra tinker --extra dev
 ```
 
-
 #### Via PyPI
 
 If you just want to use the package without modifying the code:
@@ -245,29 +263,6 @@ Or with `uv`:
 ```bash
 uv pip install trinity-rft
 uv pip install flash-attn==2.8.1
-```
-
-
-#### Using Docker
-
-We provide a Docker setup for hassle-free environment configuration.
-
-```bash
-git clone https://github.com/modelscope/Trinity-RFT
-cd Trinity-RFT
-
-# Build the Docker image
-## Tip: You can modify the Dockerfile to add mirrors or set API keys
-docker build -f scripts/docker/Dockerfile -t trinity-rft:latest .
-
-# Run the container, replacing <path_to_your_data_and_checkpoints> with your actual path
-docker run -it \
-  --gpus all \
-  --shm-size="64g" \
-  --rm \
-  -v $PWD:/workspace \
-  -v <path_to_your_data_and_checkpoints>:/data \
-  trinity-rft:latest
 ```
 
 > For training with **Megatron-LM**, please refer to [Megatron-LM Backend](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_megatron.html).
