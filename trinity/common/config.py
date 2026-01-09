@@ -556,6 +556,7 @@ class InferenceModelConfig:
 
     # ! DO NOT SET, automatically set from model.lora_configs
     enable_lora: bool = False
+    enable_runtime_lora_updating: bool = False
     lora_modules: Optional[List[Dict]] = None
     lora_kwargs: Optional[dict] = field(default_factory=dict)
 

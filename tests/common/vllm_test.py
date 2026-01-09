@@ -1228,6 +1228,8 @@ class TestTinkerAPI(RayUnittestBaseAsync):
         self.config.explorer.rollout_model.tensor_parallel_size = 1
         self.config.explorer.rollout_model.chat_template = CHAT_TEMPLATE
         self.config.explorer.rollout_model.enable_openai_api = True
+        self.config.explorer.rollout_model.enable_lora = True
+        self.config.explorer.rollout_model.enable_runtime_lora_updating = True
 
         self.config.check_and_update()
         self.engines, self.auxiliary_engines = create_inference_models(self.config)
