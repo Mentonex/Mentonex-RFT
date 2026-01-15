@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from omegaconf import OmegaConf
+from verl.workers.config import PolicyLossConfig, RouterReplayConfig
 
+from trinity.algorithm import ALGORITHM_TYPE
 from trinity.common.config import Config, SynchronizerConfig, set_if_none
 from trinity.common.constants import EXPLORER_NAME
 from trinity.utils.log import get_logger
@@ -41,6 +43,8 @@ class ActorModel:
     lora_rank: int = 0  # The rank of the LoRA model, default to 0. If lora_rank > 0, LoRA module is enabled in trainer
     lora_alpha: int = 32
     target_modules: Optional[str] = "all-linear"
+    exclude_modules: Optional[str] = None
+    lora_adapter_path: Optional[str] = None
 
     # rope configs
     rope_scaling: Optional[dict] = None
@@ -51,14 +55,15 @@ class ActorModel:
 class Optim:
     # For actor, most fields are set in algorithm.optimizer
     # For critic, you can set trainer_config.critic.optim
+    optimizer: str = "adam"
+    optimizer_impl: str = "torch.optim"
     lr: float = 1e-6
     lr_warmup_steps: int = -1
     lr_warmup_steps_ratio: float = 0.0
     min_lr_ratio: Optional[float] = 0.0
-    warmup_style: str = "constant"
+    lr_scheduler_type: str = "constant"
     total_training_steps: int = -1  # ! DO NOT SET, use trainer.total_steps
     betas: List[float] = field(default_factory=lambda: [0.9, 0.999])
-    optimizer: str = "adam"
     clip_grad: float = 1.0
     lr_warmup_init: float = 0.0
     lr_decay_steps: Optional[int] = None
@@ -69,6 +74,7 @@ class Optim:
     lr_wsd_decay_style: str = "exponential"
     lr_wsd_decay_steps: Optional[int] = None
     use_checkpoint_opt_param_scheduler: bool = False
+    override_optimizer_config: Optional[dict] = None
 
 
 @dataclass
@@ -78,6 +84,7 @@ class WrapPolicy:
 
 @dataclass
 class FSDPConfig:
+    _target_: str = "verl.workers.config.FSDPEngineConfig"  # DO NOT SET
     param_offload: bool = False
     optimizer_offload: bool = False
     offload_policy: bool = False
@@ -92,15 +99,15 @@ class FSDPConfig:
 class Checkpoint:
     load_contents: List[str] = field(default_factory=lambda: ["model", "optimizer", "extra"])
     save_contents: List[str] = field(default_factory=lambda: ["model", "optimizer", "extra"])
-    async_save: bool = False  # do not set, async save has bug in verl megatron training
+    async_save: bool = False  # TODO: testing async save
 
 
 @dataclass
 class OverrideTransformerConfig:
-    recompute_granularity: Optional[str] = None
+    recompute_granularity: Optional[str] = "full"
     recompute_modules: List[str] = field(default_factory=lambda: ["core_attn"])
-    recompute_method: Optional[str] = None
-    recompute_num_layers: Optional[int] = None
+    recompute_method: Optional[str] = "uniform"
+    recompute_num_layers: Optional[int] = 1
 
 
 @dataclass
@@ -124,6 +131,8 @@ class MegatronConfig:
         default_factory=OverrideTransformerConfig
     )
     use_mbridge: bool = False
+    dtype: str = "bfloat16"
+    use_remove_padding: bool = True
 
 
 @dataclass
@@ -157,6 +166,9 @@ class Actor:
     profile: ProfileConfig = field(default_factory=ProfileConfig)
     data_loader_seed: Optional[int] = None
     load_weight: bool = True
+    policy_loss: PolicyLossConfig = field(default_factory=PolicyLossConfig)
+    profiler: dict = field(default_factory=dict)
+    router_replay: RouterReplayConfig = field(default_factory=RouterReplayConfig)
     # do not set
     loss_agg_mode: str = "token-mean"
     clip_ratio: float = 0.2
@@ -182,6 +194,8 @@ class Ref:
     megatron: MegatronConfig = field(default_factory=MegatronConfig)
     profile: ProfileConfig = field(default_factory=ProfileConfig)
     load_weight: bool = True
+    profiler: dict = field(default_factory=dict)
+    router_replay: RouterReplayConfig = field(default_factory=RouterReplayConfig)
 
 
 @dataclass
@@ -214,6 +228,7 @@ class ActorRolloutRef:
     actor: Actor = field(default_factory=Actor)
     ref: Ref = field(default_factory=Ref)
     rollout: Rollout = field(default_factory=Rollout)
+    nccl_timeout: float = 600  # ! DO NOT SET, it will be set by `config.synchronizer.sync_timeout`
     synchronizer: Optional[SynchronizerConfig] = None
     explorer_name: str = EXPLORER_NAME
 
@@ -229,9 +244,14 @@ class CriticModel:
     use_remove_padding: bool = True
     fsdp_config: FSDPConfig = field(default_factory=FSDPConfig)
 
+    # rope configs
+    rope_scaling: Optional[dict] = None
+    rope_theta: Optional[float] = None
+
 
 @dataclass
 class Critic:
+    enable: bool = False
     strategy: Optional[str] = None
     optim: Optim = field(default_factory=Optim)
     model: CriticModel = field(default_factory=CriticModel)
@@ -255,7 +275,9 @@ class Critic:
     profile: ProfileConfig = field(default_factory=ProfileConfig)
     data_loader_seed: Optional[int] = None
     load_weight: bool = True
+    nccl_timeout: float = 600  # ! DO NOT SET, it will be set by `config.synchronizer.sync_timeout`
     ray_namespace: str = ""  # automatically generated
+    profiler: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -278,6 +300,7 @@ class RewardModel:
     use_dynamic_bsz: bool = False
     forward_max_token_len_per_gpu: int = 0
     reward_manager: str = "naive"
+    use_reward_loop: bool = True
 
 
 @dataclass
@@ -295,7 +318,23 @@ class KL_Ctrl:
 
 
 @dataclass
+class RolloutCorrection:
+    rollout_is: Optional[str] = None
+    rollout_is_threshold: float = 2.0
+    rollout_rs: Optional[str] = None
+    rollout_rs_threshold: Optional[float] = None
+    rollout_rs_threshold_lower: Optional[float] = None
+    rollout_token_veto_threshold: Optional[float] = None
+    # Because rollout and training in Trinity runs separately,
+    # rollout_is_batch_normalize is default to True
+    bypass_mode: bool = True
+    loss_type: str = "ppo_clip"
+    rollout_is_batch_normalize: bool = False
+
+
+@dataclass
 class Algorithm:
+    rollout_correction: RolloutCorrection = field(default_factory=RolloutCorrection)
     # ! DO NOT SET gamma or lam below; they are kept here merely for compatibility with verl,
     # and their values will be overwritten by those in AlgorithmConfig.advantage_fn_args
     # if they are really needed (e.g., for GAE advantage/returns computation)
@@ -349,6 +388,7 @@ class veRLConfig:
     custom_reward_function: CustomRewardFunction = field(default_factory=CustomRewardFunction)
     algorithm: Algorithm = field(default_factory=Algorithm)
     trainer: Trainer = field(default_factory=Trainer)
+    global_profiler: dict = field(default_factory=dict)
     synchronizer: Optional[SynchronizerConfig] = None
     enable_preview: bool = True
 
@@ -426,8 +466,12 @@ class veRLConfig:
         )  # kept to pass RayPPOTrainer._validate_config
 
         self.synchronizer = config.synchronizer
+        self.actor_rollout_ref.nccl_timeout = config.synchronizer.sync_timeout
         self.actor_rollout_ref.synchronizer = config.synchronizer
         self.actor_rollout_ref.explorer_name = config.explorer.name
+        algorithm = ALGORITHM_TYPE.get(config.algorithm.algorithm_type)
+        self.critic.enable = algorithm.use_critic
+        self.critic.nccl_timeout = config.synchronizer.sync_timeout
         self.critic.ray_namespace = config.synchronizer.ray_namespace
 
         # Actor / Rollout Config
@@ -507,6 +551,8 @@ class veRLConfig:
         set_if_none(self.critic, "strategy", config.trainer.trainer_strategy)
         self.critic.model.path = config.model.critic_model_path
         self.critic.model.tokenizer_path = config.model.critic_model_path
+        self.critic.model.rope_scaling = config.model.rope_scaling
+        self.critic.model.rope_theta = config.model.rope_theta
         self.critic.ppo_mini_batch_size = config.buffer.train_batch_size
         self.critic.rollout_n = self.actor_rollout_ref.rollout.n
         self.critic.optim.total_training_steps = self.trainer.total_training_steps
@@ -542,11 +588,12 @@ class veRLConfig:
 
         # LoRA related config
         if config.model.lora_configs is not None:
-            self.actor_rollout_ref.model.lora_rank = config.model.lora_configs[0].lora_rank
-            self.actor_rollout_ref.model.lora_alpha = config.model.lora_configs[0].lora_alpha
-            self.actor_rollout_ref.model.target_modules = config.model.lora_configs[
-                0
-            ].target_modules
+            lora_config = config.model.lora_configs[0]
+            actor_model_config = self.actor_rollout_ref.model
+            for attr in ["lora_rank", "lora_alpha", "target_modules", "exclude_modules"]:
+                setattr(actor_model_config, attr, getattr(lora_config, attr))
+            if not lora_config.is_dummy:
+                actor_model_config.lora_adapter_path = lora_config.path
             if self.actor_rollout_ref.actor.strategy not in ["fsdp", "fsdp2"]:
                 logger.warning(
                     f"Lora is only supported for fsdp and fsdp2, but got {self.actor_rollout_ref.actor.strategy} instead, changed to fsdp."
@@ -565,6 +612,17 @@ class veRLConfig:
                 setattr(self.actor_rollout_ref.actor.optim, "optimizer", field_value)
             elif hasattr(self.actor_rollout_ref.actor.optim, field_name):
                 setattr(self.actor_rollout_ref.actor.optim, field_name, field_value)
+        # fix optimizer type for fsdp
+        if config.trainer.trainer_strategy.startswith("fsdp"):
+            optim_map = {
+                "adam": "AdamW",
+                "adamw": "AdamW",
+                "sgd": "SGD",
+            }
+            actor_optim = self.actor_rollout_ref.actor.optim
+            actor_optim.optimizer = optim_map.get(actor_optim.optimizer, actor_optim.optimizer)
+            critic_optim = self.critic.optim
+            critic_optim.optimizer = optim_map.get(critic_optim.optimizer, critic_optim.optimizer)
         self.actor_rollout_ref.actor.use_kl_loss = config.algorithm.kl_loss_fn != "none"
         self.algorithm.use_kl_in_reward = config.algorithm.kl_penalty_fn != "none"
         # TODO (yanxi): it seems that adv_estimator now only affects whether use_critic is set to

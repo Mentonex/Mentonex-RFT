@@ -73,7 +73,7 @@ def to_data_proto(
         batch_dict.update(
             {
                 "token_level_scores": token_level_rewards,
-                "old_log_probs": gather_response_attrs(
+                "rollout_log_probs": gather_response_attrs(
                     experiences, "logprobs", max_response_length
                 ),
             }
@@ -100,7 +100,10 @@ def to_data_proto(
             )
     else:
         raise ValueError("Custom fields are not consistent across experiences.")
-    return DataProto.from_single_dict(batch_dict)
+    meta_info = {
+        "model_versions": np.array([exp.info.get("model_version", 0) for exp in experiences])
+    }
+    return DataProto.from_single_dict(batch_dict, meta_info=meta_info)
 
 
 def compute_data_metrics(batch: DataProto) -> dict:

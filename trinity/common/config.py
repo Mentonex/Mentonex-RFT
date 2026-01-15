@@ -94,14 +94,15 @@ class OptimizerConfig:
     lr_warmup_steps: int = -1
     lr_warmup_steps_ratio: float = 0.0
     min_lr_ratio: Optional[float] = 0.0
-    warmup_style: str = "constant"
+    warmup_style: Optional[str] = None  # deprecated !
+    lr_scheduler_type: str = "constant"
     optimizer_type: str = "adam"
     betas: List[float] = field(default_factory=lambda: [0.9, 0.999])
     weight_decay: float = 0.01
     clip_grad: float = 1.0
     lr_warmup_init: float = 0.0
     lr_decay_steps: Optional[int] = None
-    lr_decay_style: str = "constant"
+    lr_decay_style: str = "constant"  # duplicated with lr_scheduler_type in veRL
     min_lr: float = 0.0
 
 
@@ -116,6 +117,8 @@ class LoRAConfig:
     lora_alpha: int = 32
     lora_dtype: str = "auto"
     target_modules: str = "all-linear"
+    exclude_modules: Optional[str] = None
+    is_dummy: bool = False  # DO NOT SET, automatically set
 
 
 @Experimental
@@ -1167,6 +1170,14 @@ class Config:
             # override loss_agg_mode in policy_loss_fn_args
             self.algorithm.policy_loss_fn_args["loss_agg_mode"] = self.algorithm.loss_agg_mode  # type: ignore [index]
 
+        optim_config = self.algorithm.optimizer
+        if optim_config.warmup_style is not None:
+            optim_config.lr_scheduler_type = optim_config.warmup_style
+            logger.warning(
+                "`warmup_style` is deprecated. Please use `lr_scheduler_type` instead. "
+                f"And `lr_scheduler_type` is set to {optim_config.lr_scheduler_type}."
+            )
+
     def _check_model(self) -> None:
         model = self.model
         if not model.critic_model_path:
@@ -1363,16 +1374,19 @@ class Config:
             self.explorer.rollout_model.enable_lora = True
             if len(self.model.lora_configs) > 1:
                 raise ValueError("Only one lora adapter is supported for now.")
-            if self.model.lora_configs[0].path is None:
+            lora_config = self.model.lora_configs[0]
+            if lora_config.path is None:
                 logger.info("Creating dummy lora, since no lora_path is provided.")
                 lora_path = create_dummy_lora(
                     model_path=self.model.model_path,
                     checkpoint_job_dir=self.checkpoint_job_dir,
-                    lora_rank=self.model.lora_configs[0].lora_rank,
-                    lora_alpha=self.model.lora_configs[0].lora_alpha,
-                    target_modules=self.model.lora_configs[0].target_modules,
+                    lora_rank=lora_config.lora_rank,
+                    lora_alpha=lora_config.lora_alpha,
+                    target_modules=lora_config.target_modules,
+                    exclude_modules=lora_config.exclude_modules,
                 )
-                self.model.lora_configs[0].path = lora_path
+                lora_config.path = lora_path
+                lora_config.is_dummy = True
             self.explorer.rollout_model.lora_modules = [
                 {
                     "lora_int_id": i + 1,
