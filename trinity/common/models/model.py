@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Base Model Class"""
 import asyncio
+import copy
 import socket
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -256,7 +257,6 @@ class ModelWrapper:
         engine_type: str = "vllm",
         enable_lora: bool = False,
         enable_history: bool = False,
-        enable_thinking: Optional[bool] = None,
     ):
         """Initialize the ModelWrapper.
 
@@ -281,7 +281,6 @@ class ModelWrapper:
         self.logger = get_logger(__name__)
         self.enable_lora = enable_lora
         self.enable_history = enable_history
-        self.enable_thinking = enable_thinking
         self.history = []
         self.status = RunningStatus.RUNNING
         self.workflow_state: Dict = {}
@@ -550,10 +549,12 @@ class ModelWrapper:
             def record_chat_completions(*args, **kwargs):
                 logprobs = kwargs.pop("logprobs", True)
                 extra_body = kwargs.pop("extra_body", {})
-                if self.enable_thinking is not None:
+                if self.config.enable_thinking is not None:
                     if "chat_template_kwargs" not in extra_body:
                         extra_body["chat_template_kwargs"] = {}
-                    extra_body["chat_template_kwargs"]["enable_thinking"] = self.enable_thinking
+                    extra_body["chat_template_kwargs"][
+                        "enable_thinking"
+                    ] = self.config.enable_thinking
                 extra_body["return_token_ids"] = True
                 response = ori_create(*args, extra_body=extra_body, logprobs=logprobs, **kwargs)
                 self.history.extend(convert_api_output_to_experience(response))
@@ -607,10 +608,12 @@ class ModelWrapper:
             async def record_chat_completions(*args, **kwargs):
                 logprobs = kwargs.pop("logprobs", True)
                 extra_body = kwargs.pop("extra_body", {})
-                if self.enable_thinking is not None:
+                if self.config.enable_thinking is not None:
                     if "chat_template_kwargs" not in extra_body:
                         extra_body["chat_template_kwargs"] = {}
-                    extra_body["chat_template_kwargs"]["enable_thinking"] = self.enable_thinking
+                    extra_body["chat_template_kwargs"][
+                        "enable_thinking"
+                    ] = self.config.enable_thinking
                 extra_body["return_token_ids"] = True
                 response = await ori_create(
                     *args, extra_body=extra_body, logprobs=logprobs, **kwargs
@@ -663,6 +666,14 @@ class ModelWrapper:
         """Get the state of workflow using the model."""
         async with self.state_lock:
             return self.workflow_state.copy()
+
+    def clone_with_isolated_history(self) -> "ModelWrapper":
+        """Clone the current ModelWrapper with isolated history."""
+        new_wrapper = copy.copy(self)
+        new_wrapper.openai_async_client = None
+        new_wrapper.openai_client = None
+        new_wrapper.history = []
+        return new_wrapper
 
 
 def convert_api_output_to_experience(

@@ -83,6 +83,18 @@ class WorkflowRunner:
             "begin_time": 0,
             "terminate_time": 0,
         }
+        self.concurrent_mode = config.explorer.concurrent_mode
+        if self.concurrent_mode == "sequential":
+            self.concurrent_run_fn = self._sequential_run
+        elif self.concurrent_mode == "asynchronous":
+            self.concurrent_run_fn = self._asynchronous_run
+        elif self.concurrent_mode == "multi-threading":
+            self.concurrent_run_fn = self._multi_threading_run
+        else:
+            self.logger.warning(
+                f"Unknown concurrent_mode {self.concurrent_mode}, defaulting to sequential."
+            )
+            self.concurrent_run_fn = self._sequential_run
 
     async def prepare(self) -> None:
         """Prepare the runner."""
@@ -94,7 +106,7 @@ class WorkflowRunner:
     def is_alive(self):
         return True
 
-    def _create_workflow_instance(self, task: Task) -> None:
+    def _create_workflow_instance(self, task: Task) -> Workflow:
         if task.workflow is None:
             raise ValueError("Workflow is not set in the task.")
         if (
@@ -109,6 +121,7 @@ class WorkflowRunner:
             )
         else:
             self.workflow_instance.reset(task)
+        return self.workflow_instance
 
     async def _run_workflow(self, workflow_instance: Workflow) -> List[Experience]:
         if workflow_instance.asynchronous:
@@ -121,16 +134,16 @@ class WorkflowRunner:
         self, task: Task, repeat_times: int, run_id_base: int
     ) -> Tuple[List[Experience], List[Dict]]:
         """Init workflow from the task and run it."""
-        self._create_workflow_instance(task)
 
-        if self.workflow_instance.repeatable:
-            self.workflow_instance.set_repeat_times(repeat_times, run_id_base)
+        if task.workflow.can_repeat:
+            workflow_instance = self._create_workflow_instance(task)
+            workflow_instance.set_repeat_times(repeat_times, run_id_base)
             st = time.time()
             await self.model_wrapper.clean_workflow_state()
             self.runner_state["workflow_id"] = f"{task.batch_id}/{task.task_id}/{run_id_base}"
             self.runner_state["terminate_time"] = None
             self.runner_state["begin_time"] = st
-            exps = await self._run_workflow(self.workflow_instance)
+            exps = await self._run_workflow(workflow_instance)
             et = time.time()
             self.runner_state["terminate_time"] = et
             # repeatable workflow cannot calculate run level metrics, we use experience level metrics directly
@@ -138,25 +151,111 @@ class WorkflowRunner:
             for metric in run_metrics:
                 metric["time/run_execution"] = et - st
         else:
-            exps = []
-            run_metrics = []
-            for i in range(repeat_times):
-                st = time.time()
-                await self.model_wrapper.clean_workflow_state()
-                self.runner_state["workflow_id"] = f"{task.batch_id}/{task.task_id}/{i}"
-                self.runner_state["terminate_time"] = None
-                self.runner_state["begin_time"] = st
-                new_exps = await self._run_workflow(self.workflow_instance)
-                et = time.time()
-                self.runner_state["terminate_time"] = et
-                run_metric = calculate_run_level_metrics(new_exps)
-                run_metric["time/run_execution"] = et - st
-                run_metrics.append(run_metric)
-                for exp in new_exps:
-                    exp.eid.run = run_id_base + i
-                exps.extend(new_exps)
-                if i < repeat_times - 1:
-                    self._create_workflow_instance(task)
+            exps, run_metrics = await self.concurrent_run_fn(task, repeat_times, run_id_base)
+        return exps, run_metrics
+
+    async def _sequential_run(
+        self,
+        task: Task,
+        repeat_times: int,
+        run_id_base: int,
+    ) -> Tuple[List[Experience], List[Dict]]:
+        exps = []
+        run_metrics = []
+        for i in range(repeat_times):
+            st = time.time()
+            workflow = self._create_workflow_instance(task)
+            await self.model_wrapper.clean_workflow_state()
+            self.runner_state["workflow_id"] = f"{task.batch_id}/{task.task_id}/{i}"
+            self.runner_state["terminate_time"] = None
+            self.runner_state["begin_time"] = st
+            new_exps = await self._run_workflow(workflow)
+            et = time.time()
+            self.runner_state["terminate_time"] = et
+            run_metric = calculate_run_level_metrics(new_exps)
+            run_metric["time/run_execution"] = et - st
+            run_metrics.append(run_metric)
+            for exp in new_exps:
+                exp.eid.run = run_id_base + i
+            exps.extend(new_exps)
+        return exps, run_metrics
+
+    async def _asynchronous_run(
+        self,
+        task: Task,
+        repeat_times: int,
+        run_id_base: int,
+    ) -> Tuple[List[Experience], List[Dict]]:
+        async def run_single(i: int) -> Tuple[List[Experience], Dict]:
+            st = time.time()
+            workflow = task.to_workflow(
+                self.model_wrapper.clone_with_isolated_history()
+                if self.config.explorer.rollout_model.enable_history
+                else self.model_wrapper,
+                self.auxiliary_model_wrappers,
+            )
+            await self.model_wrapper.clean_workflow_state()
+            self.runner_state["workflow_id"] = f"{task.batch_id}/{task.task_id}/{i}"
+            self.runner_state["terminate_time"] = None
+            self.runner_state["begin_time"] = st
+            new_exps = await self._run_workflow(workflow)
+            et = time.time()
+            self.runner_state["terminate_time"] = et
+            run_metric = calculate_run_level_metrics(new_exps)
+            run_metric["time/run_execution"] = et - st
+            for exp in new_exps:
+                exp.eid.run = run_id_base + i
+            return new_exps, run_metric
+
+        tasks = [run_single(i) for i in range(repeat_times)]
+        results = await asyncio.gather(*tasks)
+        exps = []
+        run_metrics = []
+        for new_exps, run_metric in results:
+            exps.extend(new_exps)
+            run_metrics.append(run_metric)
+        return exps, run_metrics
+
+    async def _multi_threading_run(
+        self,
+        task: Task,
+        repeat_times: int,
+        run_id_base: int,
+    ) -> Tuple[List[Experience], List[Dict]]:
+        async def run_single(i: int) -> Tuple[List[Experience], Dict]:
+            st = time.time()
+            await self.model_wrapper.clean_workflow_state()
+            workflow = task.to_workflow(
+                self.model_wrapper.clone_with_isolated_history()
+                if self.config.explorer.rollout_model.enable_history
+                else self.model_wrapper,
+                self.auxiliary_model_wrappers,
+            )
+            self.runner_state["workflow_id"] = f"{task.batch_id}/{task.task_id}/{i}"
+            self.runner_state["terminate_time"] = None
+            self.runner_state["begin_time"] = st
+            new_exps = await self._run_workflow(workflow)
+            et = time.time()
+            self.runner_state["terminate_time"] = et
+            run_metric = calculate_run_level_metrics(new_exps)
+            run_metric["time/run_execution"] = et - st
+            for exp in new_exps:
+                exp.eid.run = run_id_base + i
+            return new_exps, run_metric
+
+        # Use asyncio.to_thread to run async tasks in threads
+        results = await asyncio.gather(
+            *(
+                asyncio.to_thread(lambda idx=i: asyncio.run(run_single(idx)))  # type: ignore[misc]
+                for i in range(repeat_times)
+            )
+        )
+
+        exps = []
+        run_metrics = []
+        for new_exps, run_metric in results:
+            exps.extend(new_exps)
+            run_metrics.append(run_metric)
         return exps, run_metrics
 
     async def get_runner_state(self) -> Dict:

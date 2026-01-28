@@ -676,9 +676,18 @@ class ExplorerConfig:
     max_timeout: int = 1800  # wait each task for 30 minutes at most
     max_retry_times: int = 2  # retry each task for 2 times if it fails or timeout
     env_vars: dict = field(default_factory=dict)  # environment variables for workflow runner
-    max_repeat_times_per_runner: Optional[
-        int
-    ] = None  # the number of time to repeat each task in a single workflow runner (for GRPO-like algorithms)
+
+    # Workflow Runner Configs for tasks requiring group execution
+    # how to run a group of tasks in a single workflow runner
+    # "sequential": run tasks one by one, no requirements on workflow design, but have lower throughput
+    # "asynchronous": run tasks asynchronously, requires the workflow to be designed with async/await
+    #   syntax, and no sharing of state between tasks
+    # "multi-threading": run tasks using multi-threading, requires the workflow to be thread-safe,
+    #   and no sharing of state between tasks
+    concurrent_mode: str = "sequential"
+    # the number of time to repeat each task in a single workflow runner
+    # we recommend setting this only when using "sequential" concurrent_mode
+    max_repeat_times_per_runner: Optional[int] = None
 
     runner_num: Optional[int] = None  # ! Deprecated
 

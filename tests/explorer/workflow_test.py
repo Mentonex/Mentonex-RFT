@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Test for the workflow module"""
 import asyncio
+import time
 import unittest
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -14,7 +15,12 @@ from parameterized import parameterized, parameterized_class
 from torch import Tensor
 
 from tests.common.vllm_test import CHAT_TEMPLATE
-from tests.tools import get_model_path, get_template_config, get_unittest_dataset_config
+from tests.tools import (
+    RayUnittestBaseAsync,
+    get_model_path,
+    get_template_config,
+    get_unittest_dataset_config,
+)
 from trinity.common.config import InferenceModelConfig
 from trinity.common.experience import EID, Experience
 from trinity.common.models import create_inference_models
@@ -789,3 +795,101 @@ class TestWorkflowRunner(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self):
         ray.shutdown(_exiting_interpreter=True)
+
+
+class ConcurrentTestWorkflow(Workflow):
+    is_async: bool = True
+
+    def __init__(self, model: ModelWrapper, task: Task, auxiliary_models=None):
+        super().__init__(task=task, model=model, auxiliary_models=auxiliary_models)
+        self.client = self.model.get_openai_async_client()
+
+    async def run_async(self):
+        assert self.task.raw_task is not None
+        _ = await self.model.chat_async([{"role": "user", "content": self.task.raw_task["text"]}])
+        await asyncio.sleep(1.0)
+        _ = await self.client.chat.completions.create(
+            model=self.client.model_path,
+            messages=[{"role": "user", "content": self.task.raw_task["text"]}],
+        )
+        history_exps = self.model.extract_experience_from_history()
+        assert len(history_exps) == 2
+        assert history_exps[0].prompt_length == history_exps[1].prompt_length
+        prompt_length = history_exps[0].prompt_length
+        assert (
+            history_exps[0].tokens[:prompt_length].shape
+            == history_exps[1].tokens[:prompt_length].shape
+        )
+        return history_exps
+
+
+class TestConcurrentWorkflowRunner(RayUnittestBaseAsync):
+    async def test_concurrent_workflow_runner(self):
+        config = get_template_config()
+        config.mode = "explore"
+        config.model.model_path = get_model_path()
+        config.explorer.rollout_model.engine_num = 1
+        config.explorer.rollout_model.enable_history = True
+        config.explorer.rollout_model.enable_openai_api = True
+        config.check_and_update()
+        engines, auxiliary_engines = create_inference_models(config)
+        await asyncio.gather(*[engine.prepare.remote() for engine in engines])
+
+        config.explorer.concurrent_mode = "sequential"
+        sequential_runner = WorkflowRunner(
+            config,
+            model=engines[0],
+            auxiliary_models=[],
+            runner_id=0,
+        )
+        config.explorer.concurrent_mode = "asynchronous"
+        async_runner = WorkflowRunner(
+            config,
+            model=engines[0],
+            auxiliary_models=[],
+            runner_id=1,
+        )
+        thread_runner = WorkflowRunner(
+            config,
+            model=engines[0],
+            auxiliary_models=[],
+            runner_id=2,
+        )
+        await asyncio.gather(
+            sequential_runner.prepare(),
+            async_runner.prepare(),
+            thread_runner.prepare(),
+        )
+
+        task = Task(
+            workflow=ConcurrentTestWorkflow,
+            repeat_times=4,
+            raw_task={"text": "Hello, world!"},
+        )
+        # warmup
+        async_status, async_exps = await async_runner.run_task(task, repeat_times=2, run_id_base=0)
+
+        st = time.time()
+        async_status, async_exps = await async_runner.run_task(task, repeat_times=4, run_id_base=0)
+        async_runtime = time.time() - st
+        st = time.time()
+        thread_status, thread_exps = await thread_runner.run_task(
+            task, repeat_times=4, run_id_base=0
+        )
+        thread_runtime = time.time() - st
+        st = time.time()
+        sequential_status, sequential_exps = await sequential_runner.run_task(
+            task, repeat_times=4, run_id_base=0
+        )
+        sequential_runtime = time.time() - st
+
+        self.assertTrue(async_status.ok)
+        self.assertTrue(thread_status.ok)
+        self.assertTrue(sequential_status.ok)
+
+        self.assertEqual(len(async_exps), 8)
+        self.assertEqual(len(thread_exps), 8)
+        self.assertEqual(len(sequential_exps), 8)
+
+        self.assertLessEqual(async_runtime * 2, sequential_runtime)
+        self.assertLessEqual(thread_runtime * 2, sequential_runtime)

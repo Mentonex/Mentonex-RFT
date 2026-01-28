@@ -579,6 +579,21 @@ class ExplorerConfigValidator(ConfigValidator):
 
         self._validate_lora(config)
 
+        # check concurrent mode
+        if config.explorer.concurrent_mode not in ["sequential", "asynchronous", "multi-threading"]:
+            raise ValueError(f"Invalid explorer.concurrent_mode: {config.explorer.concurrent_mode}")
+        if config.explorer.concurrent_mode in ["asynchronous", "multi-threading"]:
+            batch_size = config.buffer.batch_size
+            max_runner_per_model = math.ceil(batch_size / config.explorer.rollout_model.engine_num)
+            if config.explorer.runner_per_model > max_runner_per_model:
+                self.logger.warning(
+                    f"explorer.runner_per_model ({config.explorer.runner_per_model}) is too large "
+                    f"for concurrent_mode '{config.explorer.concurrent_mode}' with batch_size "
+                    f"({batch_size}) and rollout_model.engine_num ({config.explorer.rollout_model.engine_num}). "
+                    f"It is set to {max_runner_per_model}."
+                )
+                config.explorer.runner_per_model = max_runner_per_model
+
     def _validate_lora(self, config: Config) -> None:
         """Process and validate LoRA configuration settings.
 
