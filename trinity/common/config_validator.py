@@ -1,7 +1,10 @@
 import math
 import os
+import sys
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import TYPE_CHECKING, Any, Tuple
 
 import ray
 from omegaconf import OmegaConf
@@ -15,6 +18,9 @@ from trinity.common.config import (
 from trinity.common.constants import StorageType, SyncMethod, SyncStyle
 from trinity.utils.log import get_logger
 from trinity.utils.lora_utils import create_dummy_lora
+
+if TYPE_CHECKING:
+    from trinity.common.verl_config import FSDPConfig
 
 
 class ConfigValidator(ABC):
@@ -1111,6 +1117,498 @@ class TrainerConfigValidator(ConfigValidator):
             raise ValueError(f"Invalid trainer type: {config.trainer.trainer_type}")
 
 
+class GPUMemoryValidator(ConfigValidator):
+    """Validator for GPU memory settings.
+
+    Checks GPU memory usage and suggests changes to configuration settings.
+
+    Note:
+        1. This validator is disabled when `ignore_validator_suggestions` is set to True.
+        2. The coefficients of the following formulas are roughly estimated using the `torch.profile` tool and may not be accurate.
+    """
+
+    def _format_alert_box(self, title: str, message_lines: list) -> str:
+        """Generate a clean, aligned ASCII border box for terminal alerts.
+
+        Args:
+            title (str): The title to display at the top of the alert box.
+            message_lines (list of str): List of message lines to include in the box body.
+
+        Returns:
+            str: A formatted multi-line string representing the bordered alert box.
+        """
+        # Combine title and all message lines to compute max width
+        all_lines = [title] + message_lines
+        max_content_width = max(len(line) for line in all_lines)
+
+        # Add padding: 2 spaces on each side → total width = content + 4
+        box_width = max_content_width + 4
+        horizontal_border = "+" + "-" * (box_width - 2) + "+"
+
+        lines = [horizontal_border]
+        # Title line centered
+        lines.append(f"| {title:^{box_width - 4}} |")
+        lines.append(horizontal_border)
+        # Message lines left-aligned
+        for line in message_lines:
+            lines.append(f"| {line:<{box_width - 4}} |")
+        lines.append(horizontal_border)
+
+        return "\n".join(lines)
+
+    def validate(self, config: Config) -> None:
+        """Validate GPU memory usage based on the provided configuration.
+
+        Skips validation if suggestions are disabled or if model tinker mode is enabled.
+        Only runs memory validation for 'train' or 'both' modes.
+
+        Args:
+            config (Config): The global configuration object.
+        """
+        if config.ignore_validator_suggestions:
+            return
+
+        if config.model.tinker.enable:
+            return
+
+        if config.mode in {"train", "both"}:
+            self.suggestions = []
+            self.validate_trainer_memory_usage(config)
+
+    def validate_trainer_memory_usage(self, config: Config) -> None:
+        """Perform GPU memory validation for trainer components.
+
+        Detects CUDA availability and delegates to FSDP-specific checks if applicable.
+
+        Args:
+            config (Config): The global configuration object.
+        """
+        import torch
+
+        if not torch.cuda.is_available():
+            alert_msg = self._format_alert_box(
+                "NO GPU DETECTED",
+                [
+                    "No CUDA-compatible GPU found.",
+                    "Please ensure a GPU is available and drivers are installed.",
+                ],
+            )
+            self.logger.error("\n" + alert_msg)
+            return
+        self.memory_capacity = torch.cuda.get_device_properties(0).total_memory
+        if config.trainer.trainer_strategy.startswith("fsdp"):
+            self.fsdp_memory_check(config)
+        else:
+            self.logger.info("GPU memory check skipped for non-FSDP strategies.")
+
+    def _get_model_params_num_and_config(self, model_path: str) -> Tuple[int, Any]:
+        """Load model configuration and estimate total parameter count without loading weights.
+
+        Uses `accelerate.init_empty_weights()` to avoid GPU memory allocation during inspection.
+
+        Args:
+            model_path (str): Path or identifier for the Hugging Face model.
+
+        Returns:
+            Tuple[int, Any]: A tuple containing:
+                - Total number of model parameters (int)
+                - Hugging Face model configuration object (Any)
+
+        Raises:
+            AssertionError: If no parameters are found in the model.
+        """
+        import torch
+        import transformers
+        from accelerate import init_empty_weights
+
+        model_config = transformers.AutoConfig.from_pretrained(model_path)
+        with init_empty_weights():
+            model = transformers.AutoModel.from_config(model_config, torch_dtype=torch.bfloat16)
+        params_num = model.num_parameters()
+        assert params_num > 0, f"No parameters found in the model at path: {model_path}"
+        return params_num, model_config
+
+    def _calc_params_memory_and_dtype_coeff(
+        self,
+        params_num: int,
+        fsdp_strategy: str,
+        fsdp_config: "FSDPConfig",
+    ) -> Tuple[float, float, float, int]:
+        """Estimate memory usage for model parameters and optimizer states under FSDP.
+
+        This function calculates memory consumption in three different scenarios:
+
+        1. **Running memory**: Memory used when a module is actively processing (forward/backward pass)
+        2. **Idle memory**: Memory used when a module is not active but still holds some state
+        3. **Optimizer step memory**: Additional memory required during the optimizer update step
+
+        The estimates account for FSDP sharding, mixed precision training, and offloading configurations.
+        Memory calculations are based on empirical observations and simplified formulas that consider:
+        - Parameter storage (weights)
+        - Gradient storage
+        - Optimizer state (typically 12 bytes per parameter for Adam-like optimizers)
+        - Data type precision (fp16/bf16 vs fp32)
+
+        Args:
+            params_num (int): Total number of model parameters across all layers.
+            fsdp_strategy (str): FSDP implementation strategy ('fsdp' or 'fsdp2').
+            fsdp_config (FSDPConfig): Configuration object containing FSDP settings including:
+                - mixed_precision settings
+                - sharding configuration (fsdp_size)
+                - offloading options
+                - reshard_after_forward setting
+
+        Returns:
+            Tuple[float, float, float, int]: A tuple containing:
+                - running_memory (float): Memory in bytes during active computation
+                - idle_memory (float): Memory in bytes when module is inactive
+                - optim_step_memory (float): Peak memory in bytes during optimizer.step()
+                - dtype_coeff (int): Data type coefficient (1 for fp16/bf16, 2 for fp32)
+        """
+        dtype_str = str(fsdp_config.mixed_precision.get("dtype", fsdp_config.dtype))
+        dtype_coeff = 1 if "16" in dtype_str else 2
+        fsdp_size = fsdp_config.fsdp_size
+
+        if fsdp_strategy == "fsdp2" and fsdp_config.offload_policy:
+            return 0, 0, 0, dtype_coeff
+
+        # running memory
+        model_params_memory = 2 * dtype_coeff * params_num
+        if fsdp_config.reshard_after_forward:  # enable zero3
+            model_params_memory /= fsdp_size
+        optim_params_memory = (12 * params_num + 2 * dtype_coeff * params_num) / fsdp_size
+        running_memory = model_params_memory + optim_params_memory
+        if fsdp_strategy == "fsdp" and fsdp_size == 1:  # TODO: observerd by torch.profile
+            running_memory += 2 * dtype_coeff * params_num
+
+        # idle memory
+        idle_memory = 0
+        if fsdp_strategy == "fsdp":
+            if not fsdp_config.optimizer_offload:
+                idle_memory += 12 * params_num / fsdp_size
+            elif fsdp_size == 1:
+                running_memory += 2 * dtype_coeff * params_num
+        else:  # fsdp2
+            if not fsdp_config.offload_policy:
+                idle_memory += 12 * params_num / fsdp_size
+
+        # optim step memory
+        optim_step_memory = 4 * dtype_coeff * params_num / fsdp_size
+        return running_memory, idle_memory, optim_step_memory, dtype_coeff
+
+    def fsdp_memory_check(self, config: Config) -> None:
+        """Perform comprehensive FSDP memory validation for actor and critic models.
+
+        Estimates total GPU memory usage including parameters, optimizer states, and activations.
+        Issues warnings and suggestions if usage exceeds safe thresholds.
+
+        Args:
+            config (Config): The global configuration object.
+
+        Raises:
+            ValueError: If estimated memory usage exceeds safe limits and suggestions are not bypassed.
+        """
+        from trinity.common.verl_config import veRLConfig
+
+        self.pytorch_env_flag = (
+            os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "") == "expandable_segments:True"
+        )
+        self.memory_threshold = (0.9 if self.pytorch_env_flag else 0.8) * self.memory_capacity
+
+        try:
+            model_path = config.model.model_path
+            params_num, hf_config = self._get_model_params_num_and_config(model_path)
+
+            verl_config: veRLConfig = config.trainer.trainer_config
+            world_size = config.cluster.trainer_gpu_num
+
+            # calculate actor memory, and ref is always being offloaded
+            actor_config = verl_config.actor_rollout_ref.actor
+            (
+                actor_running_memory,
+                actor_idle_memory,
+                actor_optim_step_memory,
+                actor_dtype_coeff,
+            ) = self._calc_params_memory_and_dtype_coeff(
+                params_num,
+                fsdp_strategy=config.trainer.trainer_strategy,
+                fsdp_config=actor_config.fsdp_config,
+            )
+            # calculate critic memory
+            if verl_config.critic.enable:
+                critic_model_path = config.model.critic_model_path
+                if model_path == critic_model_path:
+                    critic_params_num = params_num
+                    critic_hf_config = hf_config
+                else:
+                    critic_params_num, critic_hf_config = self._get_model_params_num_and_config(
+                        config.model.critic_model_path
+                    )
+
+                (
+                    critic_running_memory,
+                    critic_idle_memory,
+                    critic_optim_step_memory,
+                    critic_dtype_coeff,
+                ) = self._calc_params_memory_and_dtype_coeff(
+                    critic_params_num,
+                    fsdp_strategy=config.trainer.trainer_strategy,
+                    fsdp_config=verl_config.critic.model.fsdp_config,
+                )
+            else:
+                critic_running_memory = critic_idle_memory = 0
+
+            actor_model_config = verl_config.actor_rollout_ref.model
+            if actor_model_config.use_fused_kernels and actor_model_config.fused_kernel_options:
+                logits_memory_type = "fusion"
+            else:
+                if config.algorithm.entropy_loss_fn != "none":
+                    logits_memory_type = "normal-with-entropy"
+                else:
+                    logits_memory_type = "normal-without-entropy"
+            self._check_max_memory_in_fsdp_training(
+                module_name="actor",
+                model_path=model_path,
+                hf_config=hf_config,
+                num_tokens=actor_config.ppo_max_token_len_per_gpu,  # type: ignore
+                strategy=config.trainer.trainer_strategy,
+                fsdp_config=actor_config.fsdp_config,
+                gradient_checkpointing=actor_model_config.enable_gradient_checkpointing,
+                world_size=world_size,
+                logits_memory_type=logits_memory_type,
+                dtype_coeff=actor_dtype_coeff,
+                params_memory=(actor_running_memory + critic_idle_memory),
+                optim_step_memory=actor_optim_step_memory,
+            )
+            if verl_config.critic.enable:
+                critic_model = verl_config.critic.model
+                self._check_max_memory_in_fsdp_training(
+                    module_name="critic",
+                    model_path=critic_model_path,
+                    hf_config=critic_hf_config,
+                    num_tokens=verl_config.critic.ppo_max_token_len_per_gpu,  # type: ignore
+                    strategy=config.trainer.trainer_strategy,
+                    fsdp_config=critic_model.fsdp_config,
+                    gradient_checkpointing=critic_model.enable_gradient_checkpointing,
+                    world_size=world_size,
+                    logits_memory_type="none",  # no logits in critic
+                    dtype_coeff=critic_dtype_coeff,
+                    params_memory=(critic_running_memory + actor_idle_memory),
+                    optim_step_memory=critic_optim_step_memory,
+                )
+            if len(self.suggestions) > 0:
+                self.suggestions.extend(
+                    [
+                        "",
+                        "To bypass this check, set `ignore_validator_suggestions: true` in config.",
+                    ]
+                )
+                alert_box = self._format_alert_box("MEMORY OVERUSE WARNING", self.suggestions)
+                self.logger.warning("\n" + alert_box)
+                raise ValueError("Unsafe GPU memory usage. See alert above.")
+        except Exception as e:
+            self.logger.error("Failed to check model config.", exc_info=True)
+            self._get_user_choice(e)
+
+    def _calc_fsdp_activation_memory(
+        self,
+        hf_config,
+        num_tokens: int,
+        logits_memory_type: str,
+        dtype_coeff: int,
+    ) -> float:
+        """Estimate activation memory usage during FSDP training with gradient checkpointing.
+
+        Includes memory for hidden states, logits, and backward pass buffers.
+
+        Args:
+            hf_config: Hugging Face model configuration object.
+            num_tokens (int): Maximum number of tokens per GPU during training.
+            logits_memory_type (str): Type of logits computation ('fusion', 'normal-with-entropy', etc.).
+            dtype_coeff (int): Data type coefficient (1 for fp16/bf16, 2 for fp32).
+
+        Returns:
+            float: Estimated activation memory in bytes.
+        """
+        hidden_size: int = hf_config.hidden_size
+        num_layers: int = hf_config.num_hidden_layers
+        vocab_size: int = hf_config.vocab_size
+
+        # Currently, only gradient_checkpointing is considered
+        # TODO: add memory calculation for non-gradient checkpointing.
+        hidden_state_memory = 2 * num_tokens * hidden_size * (num_layers + 4)
+        if logits_memory_type == "fusion":
+            logits_memory = vocab_size * 20480
+        elif logits_memory_type.startswith("normal"):
+            coeff = 8 if logits_memory_type == "normal-with-entropy" else 10
+            logits_memory = coeff * num_tokens * vocab_size
+        else:  # no logits in critic
+            logits_memory = 0
+        back_memory = 4 * vocab_size * hidden_size + 80 * num_tokens * hidden_size
+        max_activation_memory = hidden_state_memory + max(logits_memory, back_memory)
+        max_activation_memory *= dtype_coeff
+        return max_activation_memory
+
+    def _check_max_memory_in_fsdp_training(
+        self,
+        module_name: str,
+        model_path: str,
+        hf_config,
+        num_tokens: int,
+        strategy: str,
+        fsdp_config: "FSDPConfig",
+        gradient_checkpointing: bool,
+        world_size: int,
+        logits_memory_type: str,
+        dtype_coeff: int,
+        params_memory: float,
+        optim_step_memory: float,
+    ):
+        """Check if estimated GPU memory usage for a module exceeds safe thresholds.
+
+        Logs detailed memory breakdown and appends actionable suggestions if overuse is detected.
+
+        Args:
+            module_name (str): Name of the module ('actor' or 'critic').
+            model_path (str): Path to the model.
+            hf_config: Hugging Face model configuration.
+            num_tokens (int): Maximum tokens per GPU.
+            strategy (str): FSDP strategy in use.
+            fsdp_config (FSDPConfig): FSDP configuration for the module.
+            gradient_checkpointing (bool): Whether gradient checkpointing is enabled.
+            world_size (int): Total number of trainer GPUs.
+            logits_memory_type (str): Type of logits memory estimation.
+            dtype_coeff (int): Data type coefficient.
+            params_memory (float): Estimated parameter + optimizer memory (bytes).
+            optim_step_memory (float): Estimated optimizer step memory (bytes).
+        """
+        max_activation_memory = self._calc_fsdp_activation_memory(
+            hf_config, num_tokens, logits_memory_type, dtype_coeff
+        )
+        total_memory = params_memory + max(max_activation_memory, optim_step_memory)
+        total_mb = total_memory / (1024**2)
+        params_mb = params_memory / (1024**2)
+        activation_mb = max_activation_memory / (1024**2)
+        optim_step_mb = optim_step_memory / (1024**2)
+        gpu_capacity_mb = self.memory_capacity / (1024**2)
+
+        self.logger.info(
+            f"Estimated GPU memory usage for {module_name} model '{model_path}': "
+            f"{total_mb:.2f} MB ({params_mb:.2f} MB params + "
+            f"max({activation_mb:.2f} MB activations, {optim_step_mb:.2f} MB optimizer step)) "
+            f"on a {gpu_capacity_mb:.2f} MB GPU."
+        )
+
+        if gradient_checkpointing:
+            if total_memory > self.memory_threshold:
+                threshold_mb = self.memory_threshold / (1024**2)
+                self.logger.warning(
+                    f"⚠️  The estimated memory usage for the {module_name} ({total_mb:.2f} MB) "
+                    f"exceeds the recommended limit ({threshold_mb:.2f} MB, "
+                    f"~{int(80 if not self.pytorch_env_flag else 90)}% of total GPU memory). "
+                )
+
+                if len(self.suggestions) > 0:
+                    self.suggestions.append("")
+                self.suggestions.extend(
+                    [
+                        f"{module_name.capitalize()} model '{os.path.basename(model_path)}' "
+                        "may exceed GPU memory!",
+                        f"Estimated: {total_mb:.1f} MB > Limit: {threshold_mb:.1f} MB",
+                        "",
+                        "Suggested fixes:",
+                    ]
+                )
+                if not self.pytorch_env_flag:
+                    self.suggestions.extend(
+                        [
+                            "• Set environment variable `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`",
+                            "  before launching your training job to reduce memory fragmentation.",
+                        ]
+                    )
+                if strategy == "fsdp":
+                    self.suggestions.extend(
+                        [
+                            f"• Set `fsdp_config.offload_policy=true` in {module_name} config and",
+                            "  set `trainer.trainer_strategy=fsdp2` to reduce memory usage.",
+                        ]
+                    )
+                if strategy == "fsdp2" and not fsdp_config.offload_policy:
+                    self.suggestions.extend(
+                        [
+                            f"• Set `fsdp_config.offload_policy=true` in {module_name} config",
+                            "  to reduce parameters memory usage.",
+                        ]
+                    )
+                if fsdp_config.fsdp_size != world_size:
+                    self.suggestions.extend(
+                        [
+                            f"• Set `fsdp_config.fsdp_size` in {module_name} config to match the number of trainer GPUs",
+                            f"  (currently set to {fsdp_config.fsdp_size}).",
+                        ]
+                    )
+                self.suggestions.extend(
+                    [
+                        "• Consider reducing `trainer.max_token_len_per_gpu` to lower activation memory.",
+                        "• Increase `ulysses_sequence_parallel_size` to split sequence across more GPUs.",
+                    ]
+                )
+        else:
+            # TODO: add memory check for non-gradient checkpointing.
+            if len(self.suggestions) > 0:
+                self.suggestions.append("")
+            self.suggestions.extend(
+                [
+                    f"Gradient checkpointing in {module_name} is DISABLED.",
+                    "Memory usage will be MUCH higher than enabling gradient checkpointing.",
+                    "Consider enabling it or verifying GPU capacity manually.",
+                ]
+            )
+
+    def _get_user_choice(self, e: Exception, timeout: float = 30.0):
+        """Prompt user to continue despite validation failure or re-raise the exception.
+
+        Waits for user input with a timeout; defaults to continuing if no input is received.
+
+        Args:
+            e (Exception): The exception to potentially re-raise.
+            timeout (float): Number of seconds to wait for user input. Defaults to 30.0.
+        """
+        if not sys.stdin.isatty():
+            return
+
+        self.logger.warning(
+            "Ignore suggestions and warnings, then continue training? [y/n] "
+            f"(It will automatically choose 'y' after {timeout} seconds)"
+        )
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if sys.platform == "win32":
+                import msvcrt
+
+                if msvcrt.kbhit():
+                    user_input = msvcrt.getch().decode("utf-8").lower()
+                    if user_input in ["y", "n"]:
+                        if user_input == "n":
+                            raise e
+                        return
+                    else:
+                        self.logger.warning("Please input y or n")
+            else:  # Unix-like system
+                import select
+
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    user_input = sys.stdin.readline().strip().lower()
+                    if user_input in ["y", "n"]:
+                        if user_input == "n":
+                            raise e
+                        return
+                    else:
+                        self.logger.warning("Please input y or n")
+
+            time.sleep(0.1)
+
+
 validators = [
     DeprecatedConfigValidator(),
     GlobalConfigValidator(),
@@ -1123,4 +1621,5 @@ validators = [
     ExplorerConfigValidator(),
     BufferConfigValidator(),
     TrainerConfigValidator(),
+    GPUMemoryValidator(),
 ]
