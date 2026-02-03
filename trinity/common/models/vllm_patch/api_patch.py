@@ -6,6 +6,7 @@
 import asyncio
 import functools
 import json
+import logging
 import time
 from typing import Optional, Union
 
@@ -335,6 +336,8 @@ async def run_api_server_in_ray_actor(
     host: str,
     port: int,
     model_path: str,
+    logger: logging.Logger,
+    chat_template: Optional[str] = None,
     enable_auto_tool_choice: bool = False,
     tool_call_parser: Optional[str] = None,
     reasoning_parser: Optional[str] = None,
@@ -369,4 +372,7 @@ async def run_api_server_in_ray_actor(
     args = parser.parse_args(cli_args)
     if vllm_version >= parse_version("0.11.0"):
         args.structured_outputs_config.reasoning_parser = reasoning_parser
+    if chat_template:
+        args.chat_template = chat_template
+    logger.info(f"Starting vLLM OpenAI API server with args: {args}")
     await run_server_in_ray(args, async_llm)

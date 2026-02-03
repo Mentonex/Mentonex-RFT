@@ -36,11 +36,13 @@ def get_api_server(
                 async_llm,
                 host=host,
                 port=port,
+                logger=logger,
                 model_path=config.model_path,  # type: ignore [arg-type]
                 enable_auto_tool_choice=config.enable_auto_tool_choice,
                 tool_call_parser=config.tool_call_parser,
                 reasoning_parser=config.reasoning_parser,
                 enable_log_requests=config.enable_log_requests,
+                chat_template=config.chat_template,
             )
         )
     elif vllm_version == parse_version("0.12.0"):
@@ -59,6 +61,7 @@ def get_api_server(
                 tool_call_parser=config.tool_call_parser,
                 reasoning_parser=config.reasoning_parser,
                 enable_log_requests=config.enable_log_requests,
+                chat_template=config.chat_template,
             )
         )
     else:
@@ -78,5 +81,6 @@ def get_api_server(
                 tool_call_parser=config.tool_call_parser,
                 reasoning_parser=config.reasoning_parser,
                 enable_log_requests=config.enable_log_requests,
+                chat_template=config.chat_template,
             )
         )
