@@ -149,7 +149,10 @@ class vLLMRolloutModel(BaseInferenceModel):
 
     async def _initialize_tokenizer(self):
         if self.tokenizer is None:
-            self.tokenizer = await self.async_llm.get_tokenizer()
+            if self.vllm_version >= parse_version("0.15.0"):
+                self.tokenizer = self.async_llm.get_tokenizer()
+            else:
+                self.tokenizer = await self.async_llm.get_tokenizer()
         self.tokenizer.truncation_side = "left"
 
     def _initialize_processor(self):

@@ -41,6 +41,7 @@ Trinity-RFT 面向不同背景和目标的用户提供相应功能：
 
 ## 🚀 新闻
 
+* [2026-02] [[发布说明]](https://github.com/agentscope-ai/Trinity-RFT/releases/tag/v0.5.0) Trinity-RFT v0.5.0 发布：单 GPU 场景下的 colocate 模式，trainer 驱动的权重同步，自动并行设置建议等新功能。
 * [2026-01] 🎉 三篇论文被 ICLR 2026 接收：[CHORD](https://github.com/agentscope-ai/Trinity-RFT/tree/main/examples/mix_chord)、[BOTS](https://github.com/agentscope-ai/Trinity-RFT/tree/main/examples/bots) 和 [Group-relative REINFORCE 系列变种](https://github.com/agentscope-ai/Trinity-RFT/tree/main/examples/rec_gsm8k)。在 Trinity-RFT 中尝试这些新算法吧！
 * [2026-01] [[发布说明]](https://github.com/agentscope-ai/Trinity-RFT/releases/tag/v0.4.1) Trinity-RFT v0.4.1 发布：升级 verl 至 v0.7.0，Tinker 后端支持 OpenAI API，修复若干 Bug。
 * [2026-01] 推出 [R3L](https://github.com/shiweijiezero/R3L)：基于反思-重试的强化学习机制，由自然语言反馈引导高效探索，并达成稳定的 off-policy 学习（[论文](https://arxiv.org/abs/2601.03715)）。
@@ -171,7 +172,7 @@ Trinity-RFT 面向不同背景和目标的用户提供相应功能：
 
 - **Python**：版本 3.10 至 3.12（含）
 - **CUDA**：版本 >= 12.8
-- **GPU**：至少 2 块 GPU
+- **GPU**： 至少一块 [compute capability](https://developer.nvidia.com/cuda/gpus) 为 8.0 或更高的 NVIDIA GPU（例如 RTX 30 系列、A100、H100）
 
 ## 源码安装（推荐）
 

@@ -32,6 +32,7 @@ Trinity-RFT provides functionalities for users with different backgrounds and ob
 
 ## 🚀 News
 
+* [2026-02] [[Release Notes]](https://github.com/agentscope-ai/Trinity-RFT/releases/tag/v0.5.0) Trinity-RFT v0.5.0 released: colocate mode for single-GPU scenarios, trainer driven weight synchronization, automatic parallelism setting suggestion, and more.
 * [2026-01] 🎉 Three papers accepted by ICLR 2026: [CHORD](https://github.com/agentscope-ai/Trinity-RFT/tree/main/examples/mix_chord), [BOTS](https://github.com/agentscope-ai/Trinity-RFT/tree/main/examples/bots), and [Group-relative REINFORCE variants](https://github.com/agentscope-ai/Trinity-RFT/tree/main/examples/rec_gsm8k). Try out these new algorithms in Trinity-RFT!
 * [2026-01] [[Release Notes]](https://github.com/agentscope-ai/Trinity-RFT/releases/tag/v0.4.1) Trinity-RFT v0.4.1 released: upgraded verl to v0.7.0, Tinker backend supports OpenAI API, bug fixes.
 * [2026-01] Introducing [R3L](https://github.com/shiweijiezero/R3L): a systematic reflect-then-retry RL mechanism with efficient language-guided exploration and stable off-policy learning ([paper](https://arxiv.org/abs/2601.03715)).
@@ -165,7 +166,7 @@ Before installing, make sure your system meets the following requirements:
 
 - Python: version 3.10 to 3.12 (inclusive)
 - CUDA: version >= 12.8
-- GPUs: at least 2 GPUs
+- GPUs: At least one NVIDIA GPU with [compute capability](https://developer.nvidia.com/cuda/gpus) 8.0 or higher (e.g., RTX 30 series, A100, H100)
 
 **Recommended for first-time users:**
 
