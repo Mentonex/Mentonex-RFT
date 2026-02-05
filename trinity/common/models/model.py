@@ -104,9 +104,6 @@ class BaseInferenceModel(InferenceModel):
         messages: List[dict],
     ) -> str:
         assert tokenizer_or_processor is not None, "tokenizer_or_processor must be provided."
-        if self.chat_template is None:
-            assert self.tokenizer is not None, "self.tokenizer must be initialized."
-            self.chat_template = self.tokenizer.get_chat_template()
 
         if messages[-1]["role"] == "assistant":
             prompt = tokenizer_or_processor.apply_chat_template(
@@ -173,8 +170,6 @@ class BaseInferenceModel(InferenceModel):
         """
         if self.tokenizer is None:
             await self._initialize_tokenizer()
-        if self.chat_template is None:
-            self.chat_template = self.tokenizer.get_chat_template()
         token_ids, action_mask, prompt_length = self.action_mask_method(
             tokenizer=self.tokenizer,
             messages=messages,

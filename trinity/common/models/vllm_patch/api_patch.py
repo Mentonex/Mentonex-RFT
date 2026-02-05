@@ -38,6 +38,7 @@ from vllm.entrypoints.openai.tool_parsers.mistral_tool_parser import MistralTool
 from vllm.outputs import RequestOutput
 from vllm.transformers_utils.tokenizer import MistralTokenizer
 from vllm.utils import FlexibleArgumentParser, set_ulimit
+from vllm.version import __version__ as VLLM_VERSION
 
 from trinity.common.models.vllm_patch import get_vllm_version
 from trinity.utils.log import get_logger
@@ -270,7 +271,9 @@ async def chat_completion_full_generator(  # noqa C901
     return PatchedChatCompletionResponse(**response_args)
 
 
-async def run_server_in_ray(args, engine_client):
+async def run_server_in_ray(args, engine_client, logger):
+    logger.info("vLLM API server version %s", VLLM_VERSION)
+
     # workaround to make sure that we bind the port before the engine is set up.
     # This avoids race conditions with ray.
     # see https://github.com/vllm-project/vllm/issues/8204
@@ -369,10 +372,10 @@ async def run_api_server_in_ray_actor(
         cli_args.extend(["--tool-call-parser", tool_call_parser])
     if reasoning_parser:
         cli_args.extend(["--reasoning-parser", reasoning_parser])
+    if chat_template:
+        cli_args.extend(["--chat-template", chat_template])
     args = parser.parse_args(cli_args)
     if vllm_version >= parse_version("0.11.0"):
         args.structured_outputs_config.reasoning_parser = reasoning_parser
-    if chat_template:
-        args.chat_template = chat_template
     logger.info(f"Starting vLLM OpenAI API server with args: {args}")
-    await run_server_in_ray(args, async_llm)
+    await run_server_in_ray(args, async_llm, logger)
