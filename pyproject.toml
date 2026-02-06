@@ -41,6 +41,7 @@ dependencies = [
     "jsonlines",
     "sortedcontainers",
     "word2number",
+    "matplotlib",
     "transformers>=4.51.0",
     "datasets>=4.0.0",
 ]
@@ -73,7 +74,6 @@ dev = [
     "pytest>=8.0.0",
     "pytest-json-ctrf",
     "parameterized",
-    "matplotlib",
     "viztracer",
 ]
 megatron = [
