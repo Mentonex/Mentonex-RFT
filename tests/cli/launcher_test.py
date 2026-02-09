@@ -7,6 +7,8 @@ import unittest
 from unittest import mock
 from unittest.mock import MagicMock
 
+from typer.testing import CliRunner as TyperCliRunner
+
 from tests.tools import (
     get_checkpoint_path,
     get_model_path,
@@ -26,6 +28,8 @@ from trinity.common.constants import (
     LOG_NODE_IP_ENV_VAR,
 )
 from trinity.common.models import get_debug_explorer_model
+
+runner = TyperCliRunner()
 
 
 class TestLauncherMain(unittest.TestCase):
@@ -73,13 +77,11 @@ class TestLauncherMain(unittest.TestCase):
             for mode in ["explore", "train", "both", "bench", "serve"]:
                 config.mode = mode
                 mock_load.return_value = config
-                with mock.patch(
-                    "argparse.ArgumentParser.parse_args",
-                    return_value=mock.Mock(
-                        command="run", config="dummy.yaml", dlc=False, plugin_dir=None
-                    ),
-                ):
-                    launcher.main()
+                result = runner.invoke(
+                    launcher.app,
+                    ["run", "--config", "dummy.yaml"],
+                )
+                self.assertEqual(result.exit_code, 0, msg=result.output)
                 mock_load.assert_called_once_with("dummy.yaml")
                 mapping[mode].assert_called_once_with(config)
                 mock_load.reset_mock()
@@ -104,13 +106,11 @@ class TestLauncherMain(unittest.TestCase):
                 "both": mock_both,
             },
         ):
-            with mock.patch(
-                "argparse.ArgumentParser.parse_args",
-                return_value=mock.Mock(
-                    command="run", config="dummy.yaml", dlc=True, plugin_dir="/path/to/plugins"
-                ),
-            ):
-                launcher.main()
+            result = runner.invoke(
+                launcher.app,
+                ["run", "--config", "dummy.yaml", "--dlc", "--plugin-dir", "/path/to/plugins"],
+            )
+            self.assertEqual(result.exit_code, 0, msg=result.output)
             mock_init.assert_called_once()
             mock_init.assert_called_once_with(
                 address="auto",
@@ -134,14 +134,20 @@ class TestLauncherMain(unittest.TestCase):
                 namespace=namespace,
             )
 
-    @mock.patch("trinity.cli.launcher.studio")
-    def test_main_studio_command(self, mock_studio):
-        with mock.patch(
-            "argparse.ArgumentParser.parse_args",
-            return_value=mock.Mock(command="studio", port=9999),
-        ):
-            launcher.main()
-        mock_studio.assert_called_once_with(9999)
+    @mock.patch("trinity.manager.config_manager.ConfigManager.run")
+    def test_main_studio_command(self, mock_studio_fn):
+        result = runner.invoke(
+            launcher.app,
+            ["studio", "--port", "9999"],
+        )
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        mock_studio_fn.assert_called_once()
+        # Typer calls the function with keyword args; verify port was passed
+        call_kwargs = mock_studio_fn.call_args
+        # The typer-decorated function receives port=9999
+        self.assertEqual(
+            call_kwargs.kwargs.get("port", call_kwargs.args[0] if call_kwargs.args else None), 9999
+        )
 
     @mock.patch("trinity.trainer.verl.utils.get_latest_hf_checkpoint_path")
     @mock.patch("trinity.cli.launcher.both")
@@ -194,13 +200,17 @@ class TestLauncherMain(unittest.TestCase):
                 "both": mock_both,
             },
         ):
-            with mock.patch(
-                "argparse.ArgumentParser.parse_args",
-                return_value=mock.Mock(
-                    command="run", config="dummy.yaml", dlc=False, plugin_dir="/path/to/plugins"
-                ),
-            ):
-                launcher.main()
+            result = runner.invoke(
+                launcher.app,
+                [
+                    "run",
+                    "--config",
+                    "dummy.yaml",
+                    "--plugin-dir",
+                    "/path/to/plugins",
+                ],
+            )
+            self.assertEqual(result.exit_code, 0, msg=result.output)
             self.assertEqual(mock_init.call_count, 2)
             self.assertEqual(mock_shutdown.call_count, 2)
             mock_train.assert_called_once()
@@ -268,62 +278,66 @@ class TestLauncherMain(unittest.TestCase):
             output_dir = os.path.join(self.config.checkpoint_job_dir, "debug_output")
             self.config.buffer.explorer_input.tasksets = [get_unittest_dataset_config("gsm8k")]
             mock_load.return_value = self.config
-            with mock.patch(
-                "argparse.ArgumentParser.parse_args",
-                return_value=mock.Mock(
-                    command="debug",
-                    config="dummy.yaml",
-                    module="workflow",
-                    enable_profiling=True,
-                    disable_overwrite=False,
-                    output_dir=output_dir,
-                    output_file=output_file,
-                    plugin_dir="",
-                ),
-            ):
-                launcher.main()
+
+            # First run: workflow with profiling enabled
+            result = runner.invoke(
+                launcher.app,
+                [
+                    "debug",
+                    "--config",
+                    "dummy.yaml",
+                    "--module",
+                    "workflow",
+                    "--enable-profiling",
+                    "--output-dir",
+                    output_dir,
+                ],
+            )
+            self.assertEqual(result.exit_code, 0, msg=result.output)
 
             self.assertFalse(os.path.exists(output_file))
             self.assertTrue(os.path.exists(output_dir))
             self.assertTrue(os.path.exists(os.path.join(output_dir, "profiling.html")))
             self.assertTrue(os.path.exists(os.path.join(output_dir, "experiences.db")))
+
             # add a dummy file to test overwrite behavior
             with open(os.path.join(output_dir, "dummy.txt"), "w") as f:
                 f.write("not empty")
 
-            with mock.patch(
-                "argparse.ArgumentParser.parse_args",
-                return_value=mock.Mock(
-                    command="debug",
-                    config="dummy.yaml",
-                    module="workflow",
-                    enable_profiling=False,
-                    disable_overwrite=False,
-                    output_dir=output_dir,
-                    output_file=output_file,
-                    plugin_dir="",
-                ),
-            ):
-                launcher.main()
+            # Second run: workflow without profiling, overwrite allowed (default)
+            result = runner.invoke(
+                launcher.app,
+                [
+                    "debug",
+                    "--config",
+                    "dummy.yaml",
+                    "--module",
+                    "workflow",
+                    "--output-dir",
+                    output_dir,
+                ],
+            )
+            self.assertEqual(result.exit_code, 0, msg=result.output)
 
             dirs = os.listdir(self.config.checkpoint_job_dir)
             target_output_dir = [d for d in dirs if d.startswith("debug_output_")]
             self.assertEqual(len(target_output_dir), 0)
 
-            with mock.patch(
-                "argparse.ArgumentParser.parse_args",
-                return_value=mock.Mock(
-                    command="debug",
-                    config="dummy.yaml",
-                    module="workflow",
-                    enable_profiling=False,
-                    disable_overwrite=True,
-                    output_dir=output_dir,
-                    output_file=output_file,
-                    plugin_dir="",
-                ),
-            ):
-                launcher.main()
+            # Third run: workflow without profiling, overwrite disabled
+            result = runner.invoke(
+                launcher.app,
+                [
+                    "debug",
+                    "--config",
+                    "dummy.yaml",
+                    "--module",
+                    "workflow",
+                    "--disable-overwrite",
+                    "--output-dir",
+                    output_dir,
+                ],
+            )
+            self.assertEqual(result.exit_code, 0, msg=result.output)
 
             self.assertFalse(os.path.exists(output_file))
             # test the original files are not overwritten
@@ -357,14 +371,13 @@ def debug_inference_model_process():
     config.model.model_path = get_model_path()
     config.check_and_update()
     with mock.patch("trinity.cli.launcher.load_config", return_value=config):
-        with mock.patch(
-            "argparse.ArgumentParser.parse_args",
-            return_value=mock.Mock(
-                command="debug",
-                config="dummy.yaml",
-                module="inference_model",
-                plugin_dir=None,
-                output_file=None,
-            ),
-        ):
-            launcher.main()
+        runner.invoke(
+            launcher.app,
+            [
+                "debug",
+                "--config",
+                "dummy.yaml",
+                "--module",
+                "inference_model",
+            ],
+        )

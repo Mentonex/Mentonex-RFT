@@ -56,7 +56,8 @@ class WorkflowRunner:
         auxiliary_models: Optional[List[InferenceModel]] = None,
         runner_id: Optional[int] = None,
     ) -> None:
-        self.logger = get_logger(f"{config.explorer.name}_runner_{runner_id}", in_ray_actor=True)
+        self.name = f"{config.explorer.name}_{runner_id}"
+        self.logger = get_logger(self.name, in_ray_actor=True)
         self.config = config
         self.model = model
         self.model_wrapper = ModelWrapper(
@@ -95,6 +96,11 @@ class WorkflowRunner:
                 f"Unknown concurrent_mode {self.concurrent_mode}, defaulting to sequential."
             )
             self.concurrent_run_fn = self._sequential_run
+        self.logger.info(
+            f"WorkflowRunner [{self.name}]({self.concurrent_mode}) initialized:\n"
+            f"  > rollout model: {self.config.explorer.rollout_model.model_path}"
+            f"  > auxiliary models: {[aux_model_config.model_path for aux_model_config in self.config.explorer.auxiliary_models]}"
+        )
 
     async def prepare(self) -> None:
         """Prepare the runner."""
@@ -102,6 +108,7 @@ class WorkflowRunner:
             self.model_wrapper.prepare(),
             *(aux_model.prepare() for aux_model in self.auxiliary_model_wrappers),
         )
+        self.logger.info(f"WorkflowRunner [{self.name}] is prepared and ready to run tasks.")
 
     def is_alive(self):
         return True
@@ -134,7 +141,6 @@ class WorkflowRunner:
         self, task: Task, repeat_times: int, run_id_base: int
     ) -> Tuple[List[Experience], List[Dict]]:
         """Init workflow from the task and run it."""
-
         if task.workflow.can_repeat:
             workflow_instance = self._create_workflow_instance(task)
             workflow_instance.set_repeat_times(repeat_times, run_id_base)
@@ -267,6 +273,7 @@ class WorkflowRunner:
     async def run_task(
         self,
         task: Task,
+        batch_id: str,
         repeat_times: int = 1,
         run_id_base: int = 0,
     ) -> Tuple[Status, List[Experience]]:
@@ -276,6 +283,9 @@ class WorkflowRunner:
             st = time.time()
             model_version = await self.model_wrapper.model_version_async
             self.runner_state["model_version"] = model_version
+            self.logger.info(
+                f"Starting task: step={batch_id}, model_version={model_version}, repeat_times={repeat_times}, run_id_base={run_id_base}"
+            )
             exps, metrics = await self._run_task(task, repeat_times, run_id_base)
             assert exps is not None and len(exps) > 0, "An empty experience is generated"
             # set eid for each experience
@@ -364,12 +374,16 @@ class DebugWorkflowRunner(WorkflowRunner):
         task = tasks[0]
         self.logger.info(f"Start debugging task:\n{task.raw_task}")
         if not self.enable_profiling:
-            status, exps = await self.run_task(task, 1, 0)
+            status, exps = await self.run_task(
+                task=task, batch_id="debug", repeat_times=1, run_id_base=0
+            )
         else:
             from viztracer import VizTracer
 
             with VizTracer(output_file=self.output_profiling_file):
-                status, exps = await self.run_task(task, 1, 0)
+                status, exps = await self.run_task(
+                    task=task, batch_id="debug", repeat_times=1, run_id_base=0
+                )
         if not status.ok and len(exps) == 0:
             exps = self.model_wrapper.extract_experience_from_history()
             self.logger.info(f"Debugging failed, extracting {len(exps)} experiences from history.")
