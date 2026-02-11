@@ -20,7 +20,11 @@ from trinity.utils.plugin_loader import load_plugins
 
 logger = get_logger(__name__)
 
-app = typer.Typer(help="Trinity CLI - Launch and manage Trinity-RFT processes.")
+app = typer.Typer(
+    help="Trinity CLI - Launch and manage Trinity-RFT processes.",
+    pretty_exceptions_show_locals=False,
+    pretty_exceptions_short=True,
+)
 
 
 def bench(config: Config) -> None:

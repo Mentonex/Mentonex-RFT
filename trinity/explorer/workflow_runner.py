@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 from trinity.buffer import get_buffer_reader, get_buffer_writer
 from trinity.common.config import Config, StorageConfig
+from trinity.common.constants import LOG_DIR_ENV_VAR, LOG_LEVEL_ENV_VAR
 from trinity.common.experience import Experience
 from trinity.common.models import get_debug_explorer_model
 from trinity.common.models.model import InferenceModel, ModelWrapper
@@ -56,7 +57,7 @@ class WorkflowRunner:
         auxiliary_models: Optional[List[InferenceModel]] = None,
         runner_id: Optional[int] = None,
     ) -> None:
-        self.name = f"{config.explorer.name}_{runner_id}"
+        self.name = f"{config.explorer.name}_runner_{runner_id}"
         self.logger = get_logger(self.name, in_ray_actor=True)
         self.config = config
         self.model = model
@@ -98,7 +99,7 @@ class WorkflowRunner:
             self.concurrent_run_fn = self._sequential_run
         self.logger.info(
             f"WorkflowRunner [{self.name}]({self.concurrent_mode}) initialized:\n"
-            f"  > rollout model: {self.config.explorer.rollout_model.model_path}"
+            f"  > rollout model: {self.config.explorer.rollout_model.model_path}\n"
             f"  > auxiliary models: {[aux_model_config.model_path for aux_model_config in self.config.explorer.auxiliary_models]}"
         )
 
@@ -329,17 +330,18 @@ class DebugWorkflowRunner(WorkflowRunner):
         disable_overwrite: bool = False,
     ) -> None:
         model, auxiliary_models = get_debug_explorer_model(config)
+        if disable_overwrite:
+            # if output dir is not empty, change to a new dir with datetime suffix
+            if os.path.isdir(output_dir) and os.listdir(output_dir):
+                suffix = time.strftime("%Y%m%d%H%M%S", time.localtime())
+                output_dir = f"{output_dir}_{suffix}"
+        os.environ[LOG_DIR_ENV_VAR] = os.path.join(output_dir, "log")
+        os.environ[LOG_LEVEL_ENV_VAR] = "DEBUG"
         super().__init__(config, model, auxiliary_models, 0)
         self.taskset = get_buffer_reader(config.buffer.explorer_input.tasksets[0])
         self.output_dir = output_dir
         self.enable_profiling = enable_profiling
-        if disable_overwrite:
-            # if output dir is not empty, change to a new dir with datetime suffix
-            if os.path.isdir(self.output_dir) and os.listdir(self.output_dir):
-                suffix = time.strftime("%Y%m%d%H%M%S", time.localtime())
-                new_output_dir = f"{self.output_dir}_{suffix}"
-                self.output_dir = new_output_dir
-            self.logger.info(f"Debug output directory: {self.output_dir}")
+        self.logger.info(f"Debug output directory: {self.output_dir}")
         os.makedirs(self.output_dir, exist_ok=True)
         self.output_profiling_file = os.path.join(
             self.output_dir,

@@ -299,6 +299,15 @@ class TestLauncherMain(unittest.TestCase):
             self.assertTrue(os.path.exists(output_dir))
             self.assertTrue(os.path.exists(os.path.join(output_dir, "profiling.html")))
             self.assertTrue(os.path.exists(os.path.join(output_dir, "experiences.db")))
+            origin_db_size = os.path.getsize(os.path.join(output_dir, "experiences.db"))
+            self.assertTrue(
+                os.path.exists(os.path.join(output_dir, "log", "explorer_runner_0.log"))
+            )
+            # assert not empty log file
+            origin_log_size = os.path.getsize(
+                os.path.join(output_dir, "log", "explorer_runner_0.log")
+            )
+            self.assertTrue(origin_log_size > 0)
 
             # add a dummy file to test overwrite behavior
             with open(os.path.join(output_dir, "dummy.txt"), "w") as f:
@@ -321,9 +330,20 @@ class TestLauncherMain(unittest.TestCase):
 
             dirs = os.listdir(self.config.checkpoint_job_dir)
             target_output_dir = [d for d in dirs if d.startswith("debug_output_")]
-            self.assertEqual(len(target_output_dir), 0)
+            self.assertEqual(
+                len(target_output_dir),
+                0,
+                msg=f"Expected no new output directory, but found: {target_output_dir}",
+            )
+            new_log_size = os.path.getsize(os.path.join(output_dir, "log", "explorer_runner_0.log"))
+            self.assertTrue(new_log_size > origin_log_size)
+            new_db_size = os.path.getsize(os.path.join(output_dir, "experiences.db"))
+            self.assertTrue(new_db_size > origin_db_size)
 
             # Third run: workflow without profiling, overwrite disabled
+            from trinity.utils.log import _ray_logger_ctx
+
+            _ray_logger_ctx.set(None)
             result = runner.invoke(
                 launcher.app,
                 [
@@ -359,6 +379,16 @@ class TestLauncherMain(unittest.TestCase):
                         self.config.checkpoint_job_dir, target_output_dir[0], "experiences.db"
                     )
                 )
+            )
+            self.assertTrue(
+                os.path.exists(
+                    os.path.join(
+                        self.config.checkpoint_job_dir,
+                        target_output_dir[0],
+                        "log",
+                        "explorer_runner_0.log",
+                    )
+                ),
             )
         finally:
             process.join(timeout=10)
