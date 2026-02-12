@@ -943,6 +943,10 @@ class Config:
             envs["TINKER_BASE_URL"] = self.model.tinker.base_url
         return envs
 
+    def get_checkpoint_job_dir(self) -> str:
+        """Get the checkpoint job dir."""
+        return os.path.join(self.checkpoint_root_dir, self.project, self.group, self.name)
+
 
 def load_config(config_path: str) -> Config:
     """Load the configuration from the given path."""

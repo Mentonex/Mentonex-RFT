@@ -396,6 +396,62 @@ class TestLauncherMain(unittest.TestCase):
             process.join(timeout=10)
             process.terminate()
 
+    @mock.patch("trinity.manager.log_manager.LogManager")
+    @mock.patch("trinity.cli.launcher.load_config")
+    def test_log_mode(self, mock_load_config, mock_log_manager):
+        result = runner.invoke(launcher.app, ["log"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Either --config or --log-dir must be provided", result.output)
+
+        mock_cfg = mock.Mock()
+        mock_cfg.get_checkpoint_job_dir.return_value = "/tmp/job"
+        mock_load_config.return_value = mock_cfg
+        with mock.patch("os.path.exists", return_value=True):
+            result = runner.invoke(
+                launcher.app,
+                [
+                    "log",
+                    "--config",
+                    "dummy.yaml",
+                    "-k",
+                    "trainer",
+                    "-l",
+                    "DEBUG",
+                    "-n",
+                    str(5),
+                    "-p",
+                    "ERROR",
+                ],
+            )
+            self.assertEqual(result.exit_code, 0)
+            mock_log_manager.assert_called_once_with(
+                log_dir="/tmp/job/log",
+                keyword="trainer",
+                min_level="DEBUG",
+                color_output=True,
+                last_n_lines=5,
+                search_pattern="ERROR",
+            )
+            mock_log_manager.return_value.monitor.assert_called_once()
+
+        with mock.patch("os.path.exists", return_value=True):
+            result = runner.invoke(launcher.app, ["log", "--log-dir", "/tmp/job/log"])
+            self.assertEqual(result.exit_code, 0)
+            mock_log_manager.assert_called_with(
+                log_dir="/tmp/job/log",
+                keyword=None,
+                min_level="INFO",
+                color_output=True,
+                last_n_lines=0,
+                search_pattern=None,
+            )
+
+        with mock.patch("os.path.exists", return_value=False):
+            result = runner.invoke(launcher.app, ["log", "--config", "dummy.yaml"])
+            print("result.exc_info:", result.exc_info)
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertEqual(result.exc_info[0], FileNotFoundError)
+
 
 def debug_inference_model_process():
     config = get_template_config()

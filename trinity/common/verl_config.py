@@ -461,11 +461,11 @@ class veRLConfig:
         """
         Helper to adjust token length per GPU if current setting is too small.
 
-        Ensures: token_len * seq_parallel >= config.model.max_model_len * 2
+        Ensures: token_len * seq_parallel >= config.model.max_model_len
         """
         current_token_len = getattr(obj, token_len_attr)
         seq_parallel = getattr(obj, sp_attr)
-        required_min = config.model.max_model_len * 2  # type: ignore
+        required_min = config.model.max_model_len  # type: ignore
 
         if current_token_len * seq_parallel < required_min:
             new_token_len = math.ceil(required_min / seq_parallel)

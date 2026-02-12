@@ -97,9 +97,7 @@ class GlobalConfigValidator(ConfigValidator):
         if not os.path.isabs(config.checkpoint_root_dir):
             config.checkpoint_root_dir = os.path.join(os.getcwd(), config.checkpoint_root_dir)
         # create a job dir at checkpoint_root_dir/project/name
-        config.checkpoint_job_dir = os.path.join(
-            config.checkpoint_root_dir, config.project, config.group, config.name
-        )
+        config.checkpoint_job_dir = config.get_checkpoint_job_dir()
         # rename the experiment when necessary
         if not config.continue_from_checkpoint and (
             os.path.exists(config.checkpoint_job_dir) and os.listdir(config.checkpoint_job_dir)
