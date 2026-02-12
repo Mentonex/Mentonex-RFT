@@ -6,6 +6,7 @@ from typing import List
 
 import numpy as np
 import torch
+from transformers import ProcessorMixin
 from verl import DataProto
 from verl.trainer.ppo.metric_utils import _compute_response_info
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
@@ -22,7 +23,7 @@ from trinity.common.experience import (
 
 
 def to_data_proto(
-    experiences: List[Experience], pad_token_id: int, logger: Logger
+    experiences: List[Experience], pad_token_id: int, processor: ProcessorMixin, logger: Logger
 ) -> DataProto:  # noqa: C901
     """Convert List[Experience] to verl DataProto."""
     assert len(experiences) > 0, "No experiences provided."
@@ -83,12 +84,40 @@ def to_data_proto(
         if all(getattr(exp, attr, None) is not None for exp in experiences):
             batch_dict[attr] = gather_response_attrs(experiences, attr, max_response_length)
 
-    if all(exp.multi_modal_inputs is not None for exp in experiences):
-        keys = experiences[0].multi_modal_inputs.keys()
-        batch_dict["multi_modal_inputs"] = np.array(
-            [{key: exp.multi_modal_inputs[key] for key in keys} for exp in experiences],  # type: ignore
-            dtype=object,
-        )
+    if processor is not None:
+        import inspect
+
+        # Adapted from verl/experimental/agent_loop/agent_loop.py
+        position_ids_list, multi_modal_inputs = [], []
+        for idx, exp in enumerate(experiences):
+            mm_inputs = exp.multi_modal_inputs or {}
+            input_ids = batch_dict["input_ids"][idx].unsqueeze(0)
+            attention_mask = batch_dict["attention_mask"][idx].unsqueeze(0)
+
+            get_rope_index_sig = inspect.signature(processor.get_rope_index)
+            get_rope_index_kwargs = {}
+            for key in mm_inputs.keys():
+                if key in get_rope_index_sig.parameters:
+                    get_rope_index_kwargs[key] = mm_inputs[key]
+
+            vision_position_ids, _ = processor.get_rope_index(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **get_rope_index_kwargs,
+            )  # (3, 1, seq_len)
+            vision_position_ids = vision_position_ids.squeeze(1)  # (3, seq_len)
+
+            text_position_ids = batch_dict["position_ids"][idx].unsqueeze(0)  # (1, seq_length)
+            position_ids = torch.cat(
+                (text_position_ids, vision_position_ids), dim=0
+            )  # (4, seq_length)
+            position_ids_list.append(position_ids)  # (4, seq_length)
+            multi_modal_inputs.append(mm_inputs)
+
+        batch_dict["position_ids"] = torch.stack(
+            position_ids_list, dim=0
+        ).long()  # (bs, 4, seq_length)
+        batch_dict["multi_modal_inputs"] = np.array(multi_modal_inputs, dtype=object)
 
     custom_fields_set = set(tuple(exp.custom_fields) for exp in experiences)
     if len(custom_fields_set) == 1:
@@ -222,3 +251,40 @@ def get_latest_hf_checkpoint_path(config: Config):
     if not os.path.exists(hf_checkpoint_dir):
         raise ValueError(f"No huggingface checkpoint found in {hf_checkpoint_dir}")
     return hf_checkpoint_dir
+
+
+# modified from verl/workers/fsdp_workers.py:ActorRolloutRefWorker._build_model_optimizer
+def get_model_class(hf_config):
+    from transformers import (
+        AutoModel,
+        AutoModelForCausalLM,
+        AutoModelForImageTextToText,
+        AutoModelForVision2Seq,
+    )
+
+    has_remote_code = hasattr(hf_config, "auto_map") and any(
+        hf_config.architectures[0] in val for val in hf_config.auto_map.values()
+    )
+    if has_remote_code:
+        auto_class = next(
+            k for k, v in hf_config.auto_map.items() if hf_config.architectures[0] in v
+        )
+        match auto_class:
+            case "AutoModelForVision2Seq":
+                model_class = AutoModelForVision2Seq
+            case "AutoModelForCausalLM":
+                model_class = AutoModelForCausalLM
+            case "AutoModelForImageTextToText":
+                model_class = AutoModelForImageTextToText
+            case _:
+                model_class = AutoModel
+    else:
+        if type(hf_config) in AutoModelForVision2Seq._model_mapping.keys():
+            model_class = AutoModelForVision2Seq
+        elif type(hf_config) in AutoModelForCausalLM._model_mapping.keys():
+            model_class = AutoModelForCausalLM
+        elif type(hf_config) in AutoModelForImageTextToText._model_mapping.keys():
+            model_class = AutoModelForImageTextToText
+        else:
+            model_class = AutoModel
+    return model_class

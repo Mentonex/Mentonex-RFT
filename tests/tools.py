@@ -24,6 +24,7 @@ from trinity.common.constants import (
 
 API_MODEL_PATH_ENV_VAR = "TRINITY_API_MODEL_PATH"
 VLM_MODEL_PATH_ENV_VAR = "TRINITY_VLM_MODEL_PATH"
+ALTERNATIVE_VLM_MODEL_PATH_ENV_VAR = "TRINITY_ALTERNATIVE_VLM_MODEL_PATH"
 SFT_DATASET_PATH_ENV_VAR = "TRINITY_SFT_DATASET_PATH"
 
 
@@ -130,6 +131,15 @@ def get_vision_language_model_path() -> str:
     if not path:
         raise EnvironmentError(
             f"Please set `export {VLM_MODEL_PATH_ENV_VAR}=<your_model_dir>` before running this test."
+        )
+    return path
+
+
+def get_alternative_vision_language_model_path() -> str:
+    path = os.environ.get(ALTERNATIVE_VLM_MODEL_PATH_ENV_VAR)
+    if not path:
+        raise EnvironmentError(
+            f"Please set `export {ALTERNATIVE_VLM_MODEL_PATH_ENV_VAR}=<your_model_dir>` before running this test."
         )
     return path
 
@@ -247,6 +257,20 @@ def get_unittest_dataset_config(dataset_name: str = "countdown", split: str = "t
             ),
             default_workflow_type="simple_mm_workflow",
             default_reward_fn_type="math_boxed_reward",
+        )
+    elif dataset_name == "geometry_sft":
+        # Multi-modal geometry dataset for sft with 8 samples
+        return ExperienceBufferConfig(
+            name=dataset_name,
+            path=os.path.join(os.path.dirname(__file__), "template", "data", "geometry"),
+            split="train",
+            storage_type=StorageType.FILE.value,
+            format=FormatConfig(
+                prompt_type=PromptType.PLAINTEXT,
+                prompt_key="problem",
+                response_key="answer",
+                image_key="images",
+            ),
         )
     else:
         raise ValueError(f"Unknown dataset name: {dataset_name}")

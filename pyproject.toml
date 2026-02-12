@@ -88,7 +88,7 @@ megatron = [
     # "mbridge @ git+https://github.com/ISEEKYAN/mbridge.git@20e9ffbbe72ae7b1df83bfe1bc3c11f7382f2612",
 ]
 tinker = [
-    "tinker; python_version >= '3.11'",
+    "tinker>=0.10.0; python_version >= '3.11'",
 ]
 
 doc = [
@@ -103,6 +103,8 @@ doc = [
 
 mm = [
     "qwen-vl-utils",
+    "transformers>=4.54.0",
+    "blobfile",
 ]
 
 flash_attn = [
@@ -142,6 +144,9 @@ known_third_party = ["wandb"]
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["torch", "numpy"]
+
+[project.entry-points."vllm.general_plugins"]
+vllm_patch = "trinity.common.models.vllm_patch:vllm_patch"
 
 [project.urls]
 "Homepage" = "https://github.com/agentscope-ai/Trinity-RFT"

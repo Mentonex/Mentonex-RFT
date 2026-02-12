@@ -21,6 +21,7 @@ from tests.tools import (
     RayUnittestBase,
     RayUnittestBaseAsync,
     TensorBoardParser,
+    get_alternative_vision_language_model_path,
     get_checkpoint_path,
     get_lora_config,
     get_model_path,
@@ -350,7 +351,7 @@ class TestTrainerSFTWarmupGSM8K(BaseTrainerCase):
         mock_load.return_value = deepcopy(self.config)
 
         with self.assertRaises(Exception):
-            run(config_path="dummy.yaml")
+            run(config="dummy.yaml")
         ray.shutdown(_exiting_interpreter=True)
 
         stage_configs = [cfg.check_and_update() for cfg in deepcopy(self.config)]
@@ -375,7 +376,7 @@ class TestTrainerSFTWarmupGSM8K(BaseTrainerCase):
         self.config.stages[1].buffer.explorer_input.taskset.path = old_taskset_path
         mock_load.return_value = deepcopy(self.config)
         ray.init(ignore_reinit_error=True, namespace=self.config.ray_namespace)
-        run(config_path="dummy.yaml")
+        run(config="dummy.yaml")
 
         # grpo stage
         grpo_config = stage_configs[1]
@@ -1205,13 +1206,12 @@ class TestServeWithTrainer(RayUnittestBaseAsync):
 
 
 class TestMultiModalGRPO(BaseTrainerCase):
-    @unittest.skip("Require specific vllm/transformers version")
     def test_trainer(self):
         """Test both mode with multi-modal data."""
         self.config.buffer.explorer_input.taskset = get_unittest_dataset_config(
             "geometry"
         )  # Total 8 tasks
-        self.config.model.model_path = get_vision_language_model_path()
+        self.config.model.model_path = get_alternative_vision_language_model_path()
         self.config.algorithm.algorithm_type = "grpo"
         self.config.algorithm.advantage_fn = "grpo"
         self.config.algorithm.kl_loss_fn = "none"
@@ -1246,12 +1246,11 @@ class TestMultiModalGRPO(BaseTrainerCase):
 
 
 class TestMultiModalSFT(BaseTrainerCase):
-    @unittest.skip("Require specific vllm/transformers version")
     def test_trainer(self):
         """Test SFT mode with multi-modal data."""
         self.config.mode = "train"
         self.config.buffer.trainer_input.experience_buffer = get_unittest_dataset_config(
-            "geometry"
+            "geometry_sft"
         )  # Total 8 tasks
         self.config.model.model_path = get_vision_language_model_path()
         self.config.algorithm.algorithm_type = "sft"
@@ -1522,7 +1521,6 @@ class TestTinkerTrainer(BaseTrainerCase):
         shutil.rmtree(self.config.checkpoint_job_dir, ignore_errors=True)
 
 
-@unittest.skip("Require agentscope >= 1.0.12")
 class AgentScopeTunerTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         ray.init(ignore_reinit_error=True)
@@ -1622,7 +1620,7 @@ class AgentScopeTunerTest(unittest.IsolatedAsyncioTestCase):
                 model_path=get_model_path(),
                 max_model_len=8192,
                 max_tokens=2048,
-                inference_engine_num=2,
+                inference_engine_num=1,
             )
         }
 
