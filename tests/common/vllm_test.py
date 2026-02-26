@@ -1033,7 +1033,7 @@ class TestAPIServerToolCall(RayUnittestBaseAsync):
         print_debug(f"    > Finish Reason: {choice.finish_reason}")
         self.assertEqual(choice.finish_reason, "tool_calls")
         if self.enable_thinking:
-            self.assertIsNotNone(choice.message.reasoning_content)
+            self.assertIsNotNone(choice.message.reasoning)
         self.assertIsNotNone(choice.message.tool_calls)
         self.assertEqual(len(choice.message.tool_calls), 1)
 

@@ -13,10 +13,10 @@ from trinity.common.models.vllm_patch import get_vllm_version
 def patch_vllm_prompt_logprobs(model_runner: GPUModelRunner):  # noqa: C901
     """Patch vLLM model runner to support prompt logprobs extraction."""
     version = get_vllm_version()
-    if version < parse_version("0.10.2") or version > parse_version("0.15.1"):
+    if version < parse_version("0.10.2") or version > parse_version("0.16.0"):
         raise ValueError(
             f"Unsupported vllm version: {vllm.__version__}. "
-            "This patch requires vllm version >= 0.10.2, <= 0.15.1."
+            "This patch requires vllm version >= 0.10.2, <= 0.16.0."
         )
     is_v0102 = version == parse_version("0.10.2")
 
@@ -237,15 +237,21 @@ def patch_vllm_prompt_logprobs(model_runner: GPUModelRunner):  # noqa: C901
 
             # Compute prompt logprobs.
             logprobs = self.sampler.compute_logprobs(logits)
-            token_ids, logprobs, ranks = self.sampler.gather_logprobs(
+            logprob_tensors = self.sampler.gather_logprobs(
                 logprobs, num_prompt_logprobs, tgt_token_ids
             )
 
             # Transfer GPU->CPU async.
             chunk_slice = slice(start_idx, start_idx + num_logits)
-            logprobs_tensors.logprob_token_ids[chunk_slice].copy_(token_ids, non_blocking=True)
-            logprobs_tensors.logprobs[chunk_slice].copy_(logprobs, non_blocking=True)
-            logprobs_tensors.selected_token_ranks[chunk_slice].copy_(ranks, non_blocking=True)
+            logprobs_tensors.logprob_token_ids[chunk_slice].copy_(
+                logprob_tensors.logprob_token_ids, non_blocking=True
+            )
+            logprobs_tensors.logprobs[chunk_slice].copy_(
+                logprob_tensors.logprobs, non_blocking=True
+            )
+            logprobs_tensors.selected_token_ranks[chunk_slice].copy_(
+                logprob_tensors.selected_token_ranks, non_blocking=True
+            )
 
         # Remove requests that have completed prefill from the batch
         # num_prompt_logprobs_dict.

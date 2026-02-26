@@ -85,6 +85,8 @@ html_theme = "sphinx_book_theme"
 
 html_logo = "../_static/logo.svg"
 
+html_favicon = "../_static/favicon.ico"
+
 html_theme_options = {
     "navigation_depth": 3,
     "article_header_end": "article_header_customized.html",
