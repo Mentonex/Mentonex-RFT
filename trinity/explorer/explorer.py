@@ -183,10 +183,6 @@ class Explorer:
     async def prepare(self) -> None:
         """Preparation before running."""
         try:
-            # prepare experience pipeline
-            if self.experience_pipeline:
-                await self.experience_pipeline.prepare.remote()
-            self.logger.info("Experience pipeline is ready.")
             # make sure all rollout models are ready
             run_api_ref = [model.prepare.remote() for model in self.models]
             run_api_ref.extend(
@@ -194,7 +190,10 @@ class Explorer:
             )
             await asyncio.gather(*run_api_ref)
             self.logger.info("All models are ready.")
-
+            # prepare experience pipeline
+            if self.experience_pipeline:
+                await self.experience_pipeline.prepare.remote()
+            self.logger.info("Experience pipeline is ready.")
             if not self.use_nccl_sync and self.model_type != "tinker":
                 if self.config.mode == "serve":
                     # In serving mode, each engine will setup its own process group
@@ -204,6 +203,7 @@ class Explorer:
                         0
                     ].get_available_address.remote()
                     await self.setup_weight_sync_group(master_address, master_port)
+
             if self.config.mode != "serve":
                 self.scheduler = Scheduler(self.config, self.models, self.auxiliary_models)
                 await self.scheduler.start()
@@ -440,6 +440,13 @@ class Explorer:
         if self.monitor:
             self.monitor.close()
             self.monitor = None
+        handlers = []
+        for model in self.models:
+            handlers.append(model.shutdown.remote())
+        for auxiliary_model_list in self.auxiliary_models:
+            for model in auxiliary_model_list:
+                handlers.append(model.shutdown.remote())
+        await asyncio.gather(*handlers)
         self.logger.info(
             f"Explorer ({self.config.explorer.name}) shutdown successfully at step {self.explore_step_num}."
         )
@@ -452,6 +459,8 @@ class Explorer:
         """Init experience pipeline for the explorer."""
         if self.config.mode == "bench":
             return None
+        # place the pipeline on the same node as the explorer to
+        # avoid unnecessary data transfer between nodes
         node_id = ray.get_runtime_context().get_node_id()
         return (
             ray.remote(ExperiencePipeline)
