@@ -53,7 +53,7 @@ from trinity.common.models.utils import get_checkpoint_dir_with_step_num
 from trinity.explorer.proxy.client import TrinityClient
 from trinity.manager.state_manager import StateManager
 from trinity.manager.synchronizer import Synchronizer
-from trinity.trainer.tinker_trainer import TinkerTrainerWrapper
+from trinity.trainer.tinker.tinker_trainer import TinkerTrainerWrapper
 
 
 class BaseTrainerCase(RayUnittestBase):
@@ -900,16 +900,19 @@ class TestTrainerCheckpointSave(unittest.TestCase):
                     huggingface_dir_files = os.listdir(huggingface_dir)
                     self.assertEqual(
                         set(huggingface_dir_files)
-                        - {"generation_config.json", "model.safetensors"},
-                        {
+                        - {
+                            "generation_config.json",
+                            "model.safetensors",
                             "vocab.json",
                             "merges.txt",
                             "added_tokens.json",
+                            "special_tokens_map.json",
+                        },
+                        {
                             "tokenizer.json",
                             "config.json",
                             "chat_template.jinja",
                             "tokenizer_config.json",
-                            "special_tokens_map.json",
                         },
                     )
                 # print(f"Checkpoint check at {checkpoint_iteration} iteration passed.")  # for debug

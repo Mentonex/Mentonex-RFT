@@ -18,8 +18,8 @@ Modified from https://github.com/volcengine/verl/blob/v0.7.0/verl/workers/fsdp_w
 
 import datetime
 import json
-import logging
 import os
+import sys
 import warnings
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -37,8 +37,19 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FlatParameter
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import FSDP_PREFIX
+
+# start of patch for verl to support transformers v5
+if not hasattr(sys.modules["transformers"], "AutoModelForVision2Seq"):
+    setattr(
+        sys.modules["transformers"],
+        "AutoModelForVision2Seq",
+        sys.modules["transformers"].AutoModelForImageTextToText,
+    )
+    sys.modules["transformers"].__all__.append("AutoModelForVision2Seq")
+# end of patch for verl to support transformers v5
+
+
 from verl import DataProto
-from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import (
     Dispatch,
@@ -59,7 +70,6 @@ from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
     MixedPrecisionPolicy,
-    apply_fsdp2,
     fsdp2_load_full_state_dict,
     fsdp_version,
     get_fsdp_wrap_policy,
@@ -74,6 +84,7 @@ from verl.utils.fsdp_utils import (
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.logger import log_with_rank
+from verl.utils.model import get_hf_auto_model_class
 from verl.utils.profiler import (
     DistProfiler,
     DistProfilerExtension,
@@ -96,11 +107,10 @@ from trinity.common.constants import ROLLOUT_WEIGHT_SYNC_GROUP_NAME, SyncMethod
 from trinity.common.patch import kimi_vl_monkey_patch_decorator
 from trinity.manager.synchronizer import Synchronizer
 from trinity.trainer.verl.fsdp_checkpoint_manager import FSDPCheckpointManager
-from trinity.trainer.verl.utils import get_model_class
+from trinity.trainer.verl.monkey_patch import apply_monkey_patch
+from trinity.trainer.verl.utils import apply_fsdp2
 from trinity.utils.distributed import init_process_group
-
-logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+from trinity.utils.log import get_logger
 
 
 class ActorRolloutRefWorker(Worker, DistProfilerExtension):
@@ -125,6 +135,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
+        self.logger = get_logger(f"{role}_{self.rank}", in_ray_actor=True)
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
@@ -311,7 +322,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "TiledMLP requires FSDP2. Set `actor_rollout_ref.actor.strategy=fsdp2`."
             )
 
-        log_gpu_memory_usage(f"Before init {role} from HF AutoModel", logger=logger)
+        log_gpu_memory_usage(f"Before init {role} from HF AutoModel", logger=self.logger)
         local_path = model_path
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
@@ -373,16 +384,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         override_config_kwargs.update(override_model_config)
         update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
         if self.rank == 0:
-            print(f"Model config after override: {actor_model_config}")
+            self.logger.info(f"Model config after override: {actor_model_config}")
 
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
-        init_context = get_init_weight_context_manager(
-            use_meta_tensor=not actor_model_config.tie_word_embeddings, mesh=self.device_mesh
-        )
+        init_context = get_init_weight_context_manager(use_meta_tensor=False, mesh=self.device_mesh)
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            actor_module_class = get_model_class(actor_model_config)
+            actor_module_class = get_hf_auto_model_class(actor_model_config)
 
             actor_module = actor_module_class.from_pretrained(
                 pretrained_model_name_or_path=local_path,
@@ -426,14 +435,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 )
 
         if self._is_lora:
-            print("Applying LoRA to actor module")
+            self.logger.info("Applying LoRA to actor module")
             actor_module.enable_input_require_grads()
 
             lora_adapter_path = self.config.model.get("lora_adapter_path")
             if lora_adapter_path is not None:
                 from peft import PeftModel
 
-                print(f"Loading pre-trained LoRA adapter to {role} from: {lora_adapter_path}")
+                self.logger.info(
+                    f"Loading pre-trained LoRA adapter to {role} from: {lora_adapter_path}"
+                )
 
                 # Copy adapter to local if needed
                 local_adapter_path = copy_to_local(
@@ -467,17 +478,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 vision_tower.requires_grad_(False)
                 self.use_orig_params = True
                 if self.rank == 0:
-                    print("[actor model] Vision tower is set to not trainable.")
+                    self.logger.info("[actor model] Vision tower is set to not trainable.")
             else:
                 if self.rank == 0:
-                    print("[actor model] No vision tower found.")
+                    self.logger.info("[actor model] No vision tower found.")
 
         torch.distributed.barrier()
 
         if self.rank == 0:
             print_model_size(actor_module)
 
-        log_gpu_memory_usage(f"After init {role} from HF AutoModel", logger=logger)
+        log_gpu_memory_usage(f"After init {role} from HF AutoModel", logger=self.logger)
 
         # We wrap FSDP for rollout as well
         mixed_precision_config = fsdp_config.get("mixed_precision", None)
@@ -505,7 +516,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         )
 
         if self.rank == 0:
-            print(f"wrap_policy: {auto_wrap_policy}")
+            self.logger.info(f"wrap_policy: {auto_wrap_policy}")
 
         fsdp_mesh = self.device_mesh
         fsdp_enable_zero3 = fsdp_config.reshard_after_forward
@@ -563,7 +574,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 actor_module_fsdp, fsdp_strategy, enable_gradient_checkpointing
             )
 
-        log_gpu_memory_usage(f"After {role} FSDP init", logger=logger)
+        log_gpu_memory_usage(f"After {role} FSDP init", logger=self.logger)
 
         # TODO: add more optimizer args into config
         if role == "actor" and optim_config is not None:
@@ -584,7 +595,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
             if self.rank == 0:
-                print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+                self.logger.info(
+                    f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}"
+                )
 
             if lr_scheduler_type == "constant":
                 actor_lr_scheduler = get_constant_schedule_with_warmup(
@@ -601,7 +614,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             else:
                 raise NotImplementedError(f"LR scheduler type {lr_scheduler_type} is not supported")
 
-            log_gpu_memory_usage(f"After {role} optimizer init", logger=logger)
+            log_gpu_memory_usage(f"After {role} optimizer init", logger=self.logger)
         else:
             actor_optimizer = None
             actor_lr_scheduler = None
@@ -663,11 +676,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
             if self._is_offload_param:
                 offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-                log_gpu_memory_usage("After offload actor model during init", logger=logger)
+                log_gpu_memory_usage("After offload actor model during init", logger=self.logger)
 
             if self._is_offload_optimizer:
                 offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-                log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
+                log_gpu_memory_usage(
+                    "After offload actor optimizer during init", logger=self.logger
+                )
 
         if self._is_actor:
             OmegaConf.set_struct(self.config.actor, True)
@@ -687,7 +702,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 ref_model_path = ref_model.get("path", self.config.model.path)
 
             if self.rank == 0:
-                print("reference model:", ref_model_path)
+                self.logger.info(f"reference model: {ref_model_path}")
             local_path = copy_to_local(ref_model_path, use_shm=use_shm)
 
             # TiledMLP for ref model: use ref config if specified, otherwise use actor config
@@ -774,7 +789,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
                 master_address, master_port = self.get_availale_master_addr_port()
                 world_size = self.config.synchronizer.explorer_world_size + 1
-                print(f"Trainer init_process_group {master_address}:{master_port} ({world_size}).")
+                self.logger.info(
+                    f"Trainer init_process_group {master_address}:{master_port} ({world_size})."
+                )
                 synchronizer = Synchronizer.get_actor(
                     namespace=self.config.synchronizer.ray_namespace
                 )
@@ -873,10 +890,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-            log_gpu_memory_usage("After offload actor model during update_actor", logger=logger)
+            log_gpu_memory_usage(
+                "After offload actor model during update_actor", logger=self.logger
+            )
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-            log_gpu_memory_usage("After offload actor optimizer during update_actor", logger=logger)
+            log_gpu_memory_usage(
+                "After offload actor optimizer during update_actor", logger=self.logger
+            )
 
         return output
 
@@ -925,7 +946,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-            log_gpu_memory_usage("After offload actor model during compute_log_prob", logger=logger)
+            log_gpu_memory_usage(
+                "After offload actor model during compute_log_prob", logger=self.logger
+            )
 
         return output
 
@@ -995,7 +1018,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 log_with_rank(
                     f"Save LoRA Adapter Error ({e})",
                     rank=dist.get_rank(),
-                    logger=logger,
+                    logger=self.logger,
                     log_only_rank_0=True,
                 )
 
@@ -1003,7 +1026,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             log_with_rank(
                 f"[rank-{self.rank}]: Saved LoRA adapter to: {lora_save_path}",
                 rank=dist.get_rank(),
-                logger=logger,
+                logger=self.logger,
                 log_only_rank_0=True,
             )
 
@@ -1130,6 +1153,8 @@ class CriticWorker(Worker, DistProfilerExtension):
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
+
+        self.logger = get_logger(f"critic_{self.rank}", in_ray_actor=True)
         self.config: FSDPCriticConfig = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -1238,7 +1263,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         }
         override_config_kwargs.update(override_config)
         if self.rank == 0:
-            print(f"Critic overriding config {override_config_kwargs}")
+            self.logger.info(f"Critic overriding config {override_config_kwargs}")
 
         torch_dtype = self.config.model.fsdp_config.model_dtype or "fp32"
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
@@ -1265,9 +1290,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         if getattr(critic_model_config, "model_type", None) == "kimi_vl":
             critic_model_config.text_config.topk_method = "greedy"
 
-        init_context = get_init_weight_context_manager(
-            use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh
-        )
+        init_context = get_init_weight_context_manager(use_meta_tensor=False, mesh=self.device_mesh)
 
         # TiledMLP configuration for memory-efficient MLP computation
         tiled_mlp_config = config.model.get("tiled_mlp", {})
@@ -1307,7 +1330,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 )
 
         if self._is_lora:
-            print("Applying LoRA to critic module")
+            self.logger.info("Applying LoRA to critic module")
             critic_module.enable_input_require_grads()
 
             # Check if we should load a pre-trained LoRA adapter
@@ -1315,7 +1338,9 @@ class CriticWorker(Worker, DistProfilerExtension):
             if lora_adapter_path is not None:
                 from peft import PeftModel
 
-                print(f"Loading pre-trained LoRA adapter to critic from: {lora_adapter_path}")
+                self.logger.info(
+                    f"Loading pre-trained LoRA adapter to critic from: {lora_adapter_path}"
+                )
 
                 # Copy adapter to local if needed
                 local_adapter_path = copy_to_local(
@@ -1385,10 +1410,10 @@ class CriticWorker(Worker, DistProfilerExtension):
                 vision_tower.requires_grad_(False)
                 self.use_orig_params = True
                 if self.rank == 0:
-                    print("[critic model] Vision tower is set to not trainable.")
+                    self.logger.info("[critic model] Vision tower is set to not trainable.")
             else:
                 if self.rank == 0:
-                    print("[critic model] No vision tower found.")
+                    self.logger.info("[critic model] No vision tower found.")
 
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
         if config.strategy == "fsdp":
@@ -1450,7 +1475,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         if self.rank == 0:
-            print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+            self.logger.info(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
         from verl.utils.torch_functional import (
             get_constant_schedule_with_warmup,
@@ -1491,10 +1516,10 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.critic_module)
-            log_gpu_memory_usage("After offload critic model during init", logger=logger)
+            log_gpu_memory_usage("After offload critic model during init", logger=self.logger)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-            log_gpu_memory_usage("After offload critic optimizer during init", logger=logger)
+            log_gpu_memory_usage("After offload critic optimizer during init", logger=self.logger)
 
         self.critic = DataParallelPPOCritic(
             config=self.config,

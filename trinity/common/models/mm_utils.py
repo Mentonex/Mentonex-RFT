@@ -3,6 +3,7 @@
 Supported models:
 - Qwen2.5-VL, Qwen3-VL series
 - Kimi VL series
+- GLM VL series
 
 Provides functions to:
 1. Parse prompts with media tags (<image>/<video>)
@@ -11,11 +12,15 @@ Provides functions to:
 4. Construct model-compatible message formats
 
 Note:
-    Only processors with class names containing both ("Qwen" OR "Kimi") AND "Processor" are supported.
+    Only processors with class names containing both ("Qwen", "Kimi" OR "Glm") AND "Processor" are supported.
     Relies on `qwen_vl_utils.process_vision_info` for media extraction.
 """
 import re
 from typing import Any, Dict, List, Union
+
+
+def is_qwen_like_processor(processor: Any) -> bool:
+    return re.search(r"(Qwen|Kimi|Glm).*Processor", processor.__class__.__name__) is not None
 
 
 def build_multi_modal_data(
@@ -29,7 +34,7 @@ def build_multi_modal_data(
 
     Args:
         processor: Vision-language processor instance (must have class name containing
-                   ("Qwen" OR "Kimi") AND "Processor").
+                   ("Qwen", "Kimi" OR "Glm") AND "Processor").
         messages: List of conversation messages in model-expected format. Each message's "content"
                   may be a string or list of content items (text/image/video dictionaries).
 
@@ -49,9 +54,7 @@ def build_multi_modal_data(
         {"image": [processed_image]}
     """
     processor_class_name = processor.__class__.__name__
-    if (
-        "Qwen" in processor_class_name or "Kimi" in processor_class_name
-    ) and "Processor" in processor_class_name:
+    if is_qwen_like_processor(processor):
         from qwen_vl_utils import process_vision_info
 
         image_inputs, video_inputs = process_vision_info(messages)
@@ -63,7 +66,7 @@ def build_multi_modal_data(
 
         return multi_modal_data
     raise NotImplementedError(
-        f"Processor '{processor_class_name}' not supported. Only Qwen/Kimi VL processors are supported."
+        f"Processor '{processor_class_name}' not supported. Only Qwen/Kimi/Glm VL processors are supported."
     )
 
 
@@ -77,7 +80,7 @@ def build_mm_input_for_training(
 
     Args:
         processor: Vision-language processor instance (must have class name containing
-                   ("Qwen" OR "Kimi") AND "Processor").
+                   ("Qwen", "Kimi" OR "Glm") AND "Processor").
         prompt: Plain text prompt WITHOUT media tags (e.g., "Describe this image").
                 Media placement is handled via `multi_modal_data`, not prompt tags.
         multi_modal_data: Dictionary from `build_multi_modal_data()` containing:
@@ -100,9 +103,7 @@ def build_mm_input_for_training(
         through the structured `multi_modal_data` dictionary.
     """
     processor_class_name = processor.__class__.__name__
-    if (
-        "Qwen" in processor_class_name or "Kimi" in processor_class_name
-    ) and "Processor" in processor_class_name:
+    if is_qwen_like_processor(processor):
         inputs = processor(
             text=[prompt],
             images=multi_modal_data.get("image", None),
@@ -112,7 +113,7 @@ def build_mm_input_for_training(
         )
         return dict(inputs)
     raise NotImplementedError(
-        f"Processor '{processor_class_name}' not supported. Only Qwen/Kimi VL processors are supported."
+        f"Processor '{processor_class_name}' not supported. Only Qwen/Kimi/Glm VL processors are supported."
     )
 
 

@@ -50,6 +50,9 @@ def init_process_group(
     pg_options: Optional[Any] = None,
     device_id: Optional[torch.device] = None,
 ):
+    """
+    This function is used to initialize the process group. It requires torch >= 2.6.0
+    """
     assert backend == "nccl", "Only nccl backend is supported for now."
 
     from torch.distributed.distributed_c10d import is_nccl_available
@@ -74,8 +77,6 @@ def init_process_group(
     # Use a PrefixStore to avoid accidental overrides of keys used by
     # different systems (e.g. RPC) in case the store is multi-tenant.
     prefix_store = PrefixStore(group_name, store)
-
-    pg_options_param_name = "backend_options" if str(torch.__version__) >= "2.6" else "pg_options"
     pg, _ = _new_process_group_helper(
         group_size=world_size,
         group_rank=rank,
@@ -85,7 +86,7 @@ def init_process_group(
         group_name=group_name,
         timeout=timeout,
         device_id=device_id,
-        **{pg_options_param_name: pg_options},
+        **{"backend_options": pg_options},
     )
 
     _world.pg_group_ranks[pg] = {i: i for i in range(world_size)}

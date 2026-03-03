@@ -253,38 +253,102 @@ def get_latest_hf_checkpoint_path(config: Config):
     return hf_checkpoint_dir
 
 
-# modified from verl/workers/fsdp_workers.py:ActorRolloutRefWorker._build_model_optimizer
-def get_model_class(hf_config):
-    from transformers import (
-        AutoModel,
-        AutoModelForCausalLM,
-        AutoModelForImageTextToText,
-        AutoModelForVision2Seq,
+# modified from verl/utils/tokenizer.py:hf_processor
+# bug fix for processor
+def hf_processor(name_or_path, **kwargs):
+    """Create a huggingface processor to process multimodal data.
+
+    Args:
+        name_or_path (str): The name of the processor.
+
+    Returns:
+        transformers.ProcessorMixin: The pretrained processor.
+    """
+    import types
+    import warnings
+
+    from transformers import AutoConfig, AutoProcessor
+
+    try:
+        processor = AutoProcessor.from_pretrained(name_or_path, **kwargs)
+        config = AutoConfig.from_pretrained(name_or_path, **kwargs)
+
+        # Bind vlm model's get_rope_index method to processor
+        processor.config = config
+        match processor.__class__.__name__:
+            case "Qwen2VLProcessor":
+                from transformers.models.qwen2_vl import Qwen2VLModel
+
+                processor.get_rope_index = types.MethodType(Qwen2VLModel.get_rope_index, processor)
+            case "Qwen2_5_VLProcessor":
+                from transformers.models.qwen2_5_vl import Qwen2_5_VLModel
+
+                processor.get_rope_index = types.MethodType(
+                    Qwen2_5_VLModel.get_rope_index, processor
+                )
+            case "Qwen3VLProcessor":
+                from transformers.models.qwen3_vl import Qwen3VLModel
+
+                processor.get_rope_index = types.MethodType(Qwen3VLModel.get_rope_index, processor)
+            case "Glm4vImageProcessor" | "Glm4vProcessor":
+                from transformers.models.glm4v import Glm4vModel
+
+                processor.get_rope_index = types.MethodType(Glm4vModel.get_rope_index, processor)
+            case "Glm46VProcessor":
+                from transformers.models.glm46v import Glm46VModel
+
+                processor.get_rope_index = types.MethodType(Glm46VModel.get_rope_index, processor)
+            case _:
+                raise ValueError(f"Unsupported processor type: {processor.__class__.__name__}")
+    except Exception as e:
+        processor = None
+        # TODO(haibin.lin): try-catch should be removed after adding transformer version req to setup.py to avoid
+        # silent failure
+        warnings.warn(
+            f"Failed to create processor: {e}. This may affect multimodal processing", stacklevel=1
+        )
+    # Avoid load tokenizer, see:
+    # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/auto/processing_auto.py#L344
+    if processor is not None and "Processor" not in processor.__class__.__name__:
+        processor = None
+    return processor
+
+
+# modified from verl/utils/fsdp_utils.py:apply_fsdp2
+# bug fix for transformers v5
+def apply_fsdp2(model, fsdp_kwargs, config):
+    """model: AutoModelForCausalLM"""
+    import torch.nn as nn
+    from verl.utils.fsdp_utils import (
+        CPUOffloadPolicy,
+        fully_shard,
+        maybe_patch_fsdp_module,
     )
 
-    has_remote_code = hasattr(hf_config, "auto_map") and any(
-        hf_config.architectures[0] in val for val in hf_config.auto_map.values()
+    assert (
+        CPUOffloadPolicy is not None
+    ), "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
+
+    default_transformer_cls_names_to_wrap = getattr(model, "_no_split_modules", None)
+    fsdp_transformer_layer_cls_to_wrap = config.get("wrap_policy", {}).get(
+        "transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap
     )
-    if has_remote_code:
-        auto_class = next(
-            k for k, v in hf_config.auto_map.items() if hf_config.architectures[0] in v
-        )
-        match auto_class:
-            case "AutoModelForVision2Seq":
-                model_class = AutoModelForVision2Seq
-            case "AutoModelForCausalLM":
-                model_class = AutoModelForCausalLM
-            case "AutoModelForImageTextToText":
-                model_class = AutoModelForImageTextToText
-            case _:
-                model_class = AutoModel
-    else:
-        if type(hf_config) in AutoModelForVision2Seq._model_mapping.keys():
-            model_class = AutoModelForVision2Seq
-        elif type(hf_config) in AutoModelForCausalLM._model_mapping.keys():
-            model_class = AutoModelForCausalLM
-        elif type(hf_config) in AutoModelForImageTextToText._model_mapping.keys():
-            model_class = AutoModelForImageTextToText
-        else:
-            model_class = AutoModel
-    return model_class
+
+    if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
+        fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
+
+    assert len(fsdp_transformer_layer_cls_to_wrap) > 0
+
+    modules = []
+    for name, module in model.named_modules():
+        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (
+            isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings
+        ):
+            modules.append(module)
+
+    for idx, module in enumerate(modules):
+        with maybe_patch_fsdp_module(module):
+            fully_shard(module, **fsdp_kwargs)
+
+    with maybe_patch_fsdp_module(model):
+        fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
