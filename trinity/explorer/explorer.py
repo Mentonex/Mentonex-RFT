@@ -24,6 +24,7 @@ from trinity.common.constants import (
     SyncMethod,
     SyncStyle,
 )
+from trinity.common.experience import Experience
 from trinity.common.models import create_explorer_models
 from trinity.explorer.scheduler import Scheduler
 from trinity.manager.state_manager import StateManager
@@ -393,7 +394,9 @@ class Explorer:
                 batch_id=step, min_num=self.min_wait_num
             )
         if self.experience_pipeline is not None:
-            pipeline_metrics = await self.experience_pipeline.process.remote(exps)
+            pipeline_metrics = await self.experience_pipeline.process.remote(
+                Experience.serialize_many(exps)
+            )
             self.taskset.feedback(pipeline_metrics)
             metric.update(pipeline_metrics)
         if statuses:
